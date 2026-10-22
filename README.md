@@ -9,7 +9,7 @@ python app.py
 # 打开 http://127.0.0.1:8000
 ```
 
-**当前状态**：v0.20，最小闭环已跑通并通过 **132 个端到端测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。
+**当前状态**：v0.21，最小闭环已跑通并通过 **132 个端到端测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。v0.21 把错题本接进 DSH：两条预设（错题复习 / 错题答疑）+ 6 个专用工具（`mb_due` / `mb_search` / `mb_get` / `mb_add` / `mb_review` / `mb_stats`），模型直接调、不过 shell，详见 5.16 节。
 
 v0.3 换掉了固定复习阶梯，改用 **FSRS-6**（Anki 现用的开源记忆调度算法），并提供 `mb.py` 命令行 + [SKILL.md](SKILL.md)，让 DSH 里的 AI agent 能直接驱动「取题 → 出变式 → 判分 → 回写」。
 
@@ -87,6 +87,7 @@ v0.3 换掉了固定复习阶梯，改用 **FSRS-6**（Anki 现用的开源记�
 | **回收站**（删除进回收站，可恢复；只留最近 200 条） | ✅ | [app.py](app.py) `list_trash()` / `restore_trash()` / `purge_trash()`；`GET /api/trash`、`POST /api/trash/{id}/restore`、`DELETE /api/trash/{id}`、`POST /api/trash/purge`；网页「回收站」页 |
 | **从备份恢复**（`mb.py restore --from`，覆盖前自动留安全快照） | ✅ | [app.py](app.py) `restore_from_backup()`；[mb.py](mb.py) `restore` |
 | **手机端适配**（导航横滑、输入 16px 防缩放、弹窗全屏、操作区吸底） | ✅ | [index.html](static/index.html) 的 `@media(max-width:640px)` / `@media(max-width:380px)` |
+| **DSH 插件**（两条预设 + 6 个 `mb_*` 工具，模型直接调） | ✅ | [dsh-plugin/](dsh-plugin) `lib/tools.js`（工具注册）、`lib/api.js`（HTTP + 服务自动拉起） |
 | AI 错因归类 / OCR 识题 | ⏳ 延后 | — |
 | 多端同步 / 账号 | ⏳ 延后 | — |
 | 微信 / 其他推送通道提醒 | ⏳ 延后 | — |
@@ -562,6 +563,9 @@ python mb.py mastery
 ```
 
 [SKILL.md](SKILL.md) 定义了完整流程与判分标准（什么算 hard、什么算 easy），把它复制到 `~/.dsh/skills/` 即可被会话自动发现——**我没有替你装**，安装命令在文件末尾。
+
+> v0.21 起还有更彻底的一条路：把错题本做成 DSH 插件（预设 + 6 个专用工具，模型直接调、不过 shell），见 **5.16** 节。
+
 ## 5.7 到期提醒（v0.10）
 
 提醒有三个出口，都不需要额外依赖：
@@ -1176,6 +1180,93 @@ Edge headless + CDP 数值断言（6 条种子题，桌面 1280px / 手机 375px
 - `python -m unittest discover -s tests` → **Ran 132 tests / OK**。
 - Edge headless + CDP（27 条结构断言全过、JS 异常 0）：只有一个 `main` 可见、题面含 `.katex`、`#paper` 选项数正确、`#img-list` 空态文案、`#dlg-bulk` 的 `#b-type` 7 项、`#dlg-papers` 行数与卷内题数、按卷筛选后 chip 文案「试卷：… ×」、打印页含 `.katex` 且引了 `/math.js`、375px 横向溢出 0。
 - 截图：`docs/ui-v020-list.png`、`ui-v020-dialog.png`、`ui-v020-papers.png`、`ui-v020-bulk.png`、`ui-v020-print.png`、`ui-v020-mobile-dialog.png`。
+
+## 5.16 DSH 插件：预设 + 工具（v0.21 阶段一）
+
+5.6 那条路是「让 agent 跑 `python mb.py`」——能用，但每步都要过 shell，且工具面是全量的（bash、文件读写、子 agent 全都在）。v0.21 起补上 StudyMate 那套做法的第一层：**把错题本变成 DSH 里的一条预设 + 一组专用工具**，模型直接调，不过 shell。
+
+三层结构（照 StudyMate 的 ADR 拆的）：
+
+| 层 | 内容 | 本仓库状态 |
+|---|---|---|
+| ① 预设 = 身份 + 工具面 | 两条 cordis 预设行，各挂 4 个子插件 | ✅ 阶段一 |
+| ② 面板 = 嵌宿主会话 | Client 插件，把复习界面塞进 DSH 侧栏 | ⬜ 阶段二 |
+| ③ 数据 = 按需取 | `app.py` 的 30 多个 `/api/*` | ✅ 已有 |
+
+### 5.16.1 两条预设
+
+| preset id | 名称 | order | 技能 | 工具 |
+|---|---|---|---|---|
+| `mistake-review` | 错题复习 | 40 | `mistake-review-loop` | 6 个 `mb_*` |
+| `mistake-qa` | 错题答疑 | 41 | `mistake-qa` | 6 个 `mb_*` |
+
+两条预设的子插件行完全同构，只有 persona 与技能目录不同：
+
+```yaml
+- id: persona                    # 身份：复习教练 / 就地答疑
+  name: "@deepseek-ai/dsh-persona"
+- id: skill-filesystem           # 只挂一个技能目录，不扫默认根
+  name: "@deepseek-ai/dsh-skill-filesystem"
+- id: tool-skill                 # 让模型能 skill 加载
+  name: "@deepseek-ai/dsh-tool-skill"
+- id: mistake-book-tools         # 6 个 mb_* 工具
+  name: "dsh-mistake-book/tools"
+```
+
+**没有** bash / 文件读写 / 搜索 / web / 子 agent / plan / todo ——删行才是配置层的保证，不是提示词祈祷。
+
+### 5.16.2 六个工具
+
+| 工具 | 参数 | 打哪个端点 |
+|---|---|---|
+| `mb_due` | `days`(7) `limit`(8) | `/api/plan` + `/api/mistakes?due=1` |
+| `mb_search` | `q` `subject` `knowledge` `tag` `status` `mistake_type` `paper_id` `due` `limit`(≤30) `offset` | `/api/mistakes` |
+| `mb_get` | `id`(必填) `with_reviews`(true) | `/api/mistakes/{id}` + `/reviews` |
+| `mb_add` | `question`(必填) + 10 个可选 | `POST /api/mistakes` |
+| `mb_review` | `id`(必填) `rating`(again/hard/good/easy) | `POST /api/mistakes/{id}/review` |
+| `mb_stats` | `view`(overview/mastery/trend/arena) `days`(30) | 四个统计端点 |
+
+工具返回的是**给模型读的纯文本**，不是 JSON —— `mb_due` 直接吐「今天 4 道 · 逾期 3 道 · 未来 7 天共 6 道」加编号列表，省一轮解析。
+
+### 5.16.3 文件与装配
+
+```
+dsh-plugin/
+├── package.json          # type: module，exports 出 ./tools 与 ./api
+├── lib/api.js            # 零依赖 HTTP 客户端 + 服务自动拉起
+├── lib/tools.js          # 6 个工具注册（export name/inject/apply）
+├── skills/review/SKILL.md
+├── skills/qa/SKILL.md
+└── cordis.patch.yml      # 两条预设行的参考副本
+```
+
+装配两步（已在本机做完）：
+
+1. 把包链进 profile：`mklink /J %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-mistake-book <仓库>\mistake-book\dsh-plugin`
+2. 把 `cordis.patch.yml` 里那两条预设行追加到 `~\.dsh\profiles\desktop\cordis.patch.yml`
+
+改完 **需要重启 DSH** 才生效（`.plugin-manager` 没有 watcher）。
+
+### 5.16.4 验证
+
+- 假 ctx（`{tools:{register}}`）直接 `import()` → 注册 6 个，description 全 ≤ 120 码点、无换行。
+- 真打 `127.0.0.1:8000`：`mb_due`/`mb_search`/`mb_get`/`mb_stats` 四视图输出正确；`mb_add` 建 #8 → `mb_review` 回「下次复习 2026-10-25 · 阶段 1」→ `mb_get` 历史正确 → 删除并清空回收站。
+- 顺手修掉一个**时间相关的脆弱测试**：`test_plan_buckets_due_into_days` 用 SQLite 的 `datetime('now','+3 days')`（UTC）造数据，而 `plan()` 按本地时间分桶。UTC+8 下当地 0:00~8:00 之间两者差一天，测试会莫名报 `0 != 1`。已改为在 Python 里按本地时间生成戳（`_stamp()`）。
+- 期间修掉两个字段名 bug：`/api/stats` 的 `by_subject` 元素键是 `subject` 不是 `name`；`/api/mastery` 的 `pending` 元素键是 `knowledge` 不是 `point`。
+
+### 5.16.5 为什么这么做
+
+- **零依赖**：profile 的 `node_modules/@deepseek-ai` 下只有 `cosmokit`/`schemastery`，pnpm 严格布局解析不到 `dsh-tools`。所以工具定义手写裸对象（`parameters` 用裸 JSON Schema），不 import 任何 `@deepseek-ai/*`——StudyMate 的 `lib/tools/define.ts` 是同一口径。
+- **工具行写在预设里，不写全局**：全局挂会让工具出现在所有会话里，模型在写代码时也可能去调 `mb_add`。写进预设 = 只有选了这条预设的会话才有这 6 个工具。
+- **服务没起就自动拉起**：`ensureServer()` 先探 `/api/health`，不通就 detached spawn `python app.py` 再轮询 12 秒。用户不必先开终端；拉起失败也不抛，让真正的请求去报错。
+- **不做 iframe 嵌页面**：iframe 只能「看」，不能把错题喂给模型。阶段二要的是面板里嵌宿主自己的会话（StudyMate 的 `conversation.content` + `SessionProvider`），那是另一件事。
+
+### 5.16.6 已知限制
+
+- 改完 patch 必须重启 DSH；没有热重载。
+- 只有选中「错题复习」或「错题答疑」预设的会话才有这 6 个工具。
+- 阶段一没有界面：复习仍然在对话里进行，没有侧栏面板。
+- `mb_add` 不接受图片（Data URL 太长，不适合走工具参数），要加图还是用网页。
 
 ## 6. 关键设计决策
 

@@ -1,0 +1,72 @@
+# 错题本 DSH 插件 · cordis patch
+#
+# 两条预设：复习（study loop）与答疑（就地问答）。preset 的 plugins 行就是它的
+# 身份与工具面——没有单独的工具/提示词字段，删行才是配置层的保证。
+#
+# 安装方式（二选一）：
+#   1. 作为 Bundle 安装本包后，把下面整段合并进 profile 的 cordis.patch.yml；
+#   2. 直接把本文件的 insert 列表追加进 profile 的 cordis.patch.yml。
+# 路径写死为绝对路径：会话的工作目录是任意的，相对路径在别处解析不出来。
+
+- insert:
+    - id: preset-mistake-review
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: mistake-review
+        name: 错题复习
+        description: 用本地错题本取出到期错题、出变式题、判分并回写 FSRS 复习计划
+        order: 40
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你是错题本复习教练（复习模式）。按 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/review' 的指示走复习闭环：
+                取到期错题 → 让学生先讲自己的思路 → 出变式题 → 判分 → 用 mb_review 回写评分。
+                不写讲义、不一次讲完，一题一题来。
+
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/review'
+
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          - id: mistake-book-tools
+            name: 'dsh-mistake-book/tools'
+            config:
+              url: 'http://127.0.0.1:8000'
+
+    - id: preset-mistake-qa
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: mistake-qa
+        name: 错题答疑
+        description: 就着一道错题就地答疑，短、停在原地，不展开成课程
+        order: 41
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你是错题本的就地答疑（答疑模式）。按 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/qa' 的指示答：
+                短、停在原地（指根因与正误对比，不写成讲义），不派角色、不安排课程。
+                问题超出这一道题时明说「这值得单独讲」，让用户回复习模式。
+
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              includeDefaultRoots: false
+              customSkillDirs:
+                - 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/qa'
+
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          - id: mistake-book-tools
+            name: 'dsh-mistake-book/tools'
+            config:
+              url: 'http://127.0.0.1:8000'

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """错题本 API 端到端测试：真实启动 HTTP 服务，走完整闭环。"""
 import base64
+import datetime
 import io
 import json
 import os
@@ -792,13 +793,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(json.loads(out.getvalue())["items"]), 5)
 
     # -- v0.7：今日复习计划 / 斩题 / 学习分析 --
+    @staticmethod
+    def _stamp(days=0):
+        """本地时间的相对日期戳。
+
+        刻意不用 SQLite 的 datetime('now', '+N days') —— 那是 UTC，而 app 的
+        计划分桶用本地 datetime.now()。本机在 UTC+8，当地 0:00~8:00 之间两者
+        差一天，测试会莫名其妙地红（2026-10-23 00:25 就踩过一次）。
+        """
+        return (datetime.datetime.now() + datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
     def _make_due(self, mid, days_ago):
         conn = app.connect(self.db)
+        stamp = self._stamp(-days_ago)
         conn.execute(
-            "UPDATE mistakes SET next_review_at = datetime('now', ?), "
-            "last_reviewed_at = datetime('now', ?), fsrs_stability = 5, "
+            "UPDATE mistakes SET next_review_at = ?, "
+            "last_reviewed_at = ?, fsrs_stability = 5, "
             "stage = 1, status = 'reviewing' WHERE id = ?",
-            ("-%d days" % days_ago, "-%d days" % days_ago, mid))
+            (stamp, stamp, mid))
         conn.commit()
         conn.close()
 
@@ -807,8 +819,8 @@ class ApiTest(unittest.TestCase):
         self._make_due(ids[0], 2)
         self._make_due(ids[1], 1)
         conn = app.connect(self.db)
-        conn.execute("UPDATE mistakes SET next_review_at = datetime('now','+3 days'), "
-                     "status='reviewing' WHERE id=?", (ids[2],))
+        conn.execute("UPDATE mistakes SET next_review_at = ?, "
+                     "status='reviewing' WHERE id=?", (self._stamp(3), ids[2]))
         conn.commit()
         conn.close()
 

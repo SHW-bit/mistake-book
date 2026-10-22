@@ -1,0 +1,13 @@
+{
+  "name": "dsh-mistake-book",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "错题本 DSH 插件：把本地错题本变成模型可直接调用的 6 个工具，并附带两条预设（复习 / 答疑）",
+  "exports": {
+    ".": "./lib/tools.js",
+    "./tools": "./lib/tools.js",
+    "./api": "./lib/api.js",
+    "./package.json": "./package.json"
+  }
+}
