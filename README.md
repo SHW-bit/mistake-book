@@ -1243,7 +1243,7 @@ dsh-plugin/
 装配两步（已在本机做完）：
 
 1. 把包链进 profile：`mklink /J %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-mistake-book <仓库>\mistake-book\dsh-plugin`
-2. 把 `cordis.patch.yml` 里那两条预设行追加到 `~\.dsh\profiles\desktop\cordis.patch.yml`
+2. 把 `cordis.patch.yml` 里**整个 `- insert:` 块（连同外层那一行）**追加到 `~\.dsh\profiles\desktop\cordis.patch.yml`
 
 改完 **需要重启 DSH** 才生效（`.plugin-manager` 没有 watcher）。
 
@@ -1263,7 +1263,9 @@ dsh-plugin/
 
 ### 5.16.6 已知限制
 
-- 改完 patch 必须重启 DSH；没有热重载。
+- 改完 patch 必须重启 DSH；没有热重载（`dsh-app-boot` 里没有任何 watcher）。
+- **裸行加不进新条目**：profile 的 `cordis.patch.yml` 是「补丁」不是「条目表」。`- id: xxx` 这种裸行只用来**覆盖已存在**的同 id 行；基础树里没有这个 id 时，`@deepseek-ai/cordis-plugin-include` 的 `applyEntryPatches` 会 warn 一句 `patch: entry "xxx" not found` 然后**静默丢弃**，不报错、不中断启动。新增必须写成 `- insert:` + 缩进 4 格的条目列表。本机踩过一次：两条预设裸行追加后重启，选择器里空空如也；同文件里 `dsh-context`、`dsh-font-adjust` 两行也是这么死的（基础 bundle 里已没有这两个 id）。
+- **怎么自查**：不必重启也能验。用 `@deepseek-ai/dsh-app-boot` 的 `loadProfileDirectory("dsh", <profile目录>, "<安装目录>/package.json", {userLayer:true})` 拿到 `layers` 与 `patches`，再 `composeEntries([layers.flatMap(l=>l.patches), patches], warn)`，warn 里出现 `entry "xxx" not found` 就是死行。
 - 只有选中「错题复习」或「错题答疑」预设的会话才有这 6 个工具。
 - 阶段一没有界面：复习仍然在对话里进行，没有侧栏面板。
 - `mb_add` 不接受图片（Data URL 太长，不适合走工具参数），要加图还是用网页。
