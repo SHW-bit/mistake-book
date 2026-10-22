@@ -1266,6 +1266,7 @@ dsh-plugin/
 - 改完 patch 必须重启 DSH；没有热重载（`dsh-app-boot` 里没有任何 watcher）。
 - **裸行加不进新条目**：profile 的 `cordis.patch.yml` 是「补丁」不是「条目表」。`- id: xxx` 这种裸行只用来**覆盖已存在**的同 id 行；基础树里没有这个 id 时，`@deepseek-ai/cordis-plugin-include` 的 `applyEntryPatches` 会 warn 一句 `patch: entry "xxx" not found` 然后**静默丢弃**，不报错、不中断启动。新增必须写成 `- insert:` + 缩进 4 格的条目列表。本机踩过一次：两条预设裸行追加后重启，选择器里空空如也；同文件里 `dsh-context`、`dsh-font-adjust` 两行也是这么死的（基础 bundle 里已没有这两个 id）。
 - **怎么自查**：不必重启也能验。用 `@deepseek-ai/dsh-app-boot` 的 `loadProfileDirectory("dsh", <profile目录>, "<安装目录>/package.json", {userLayer:true})` 拿到 `layers` 与 `patches`，再 `composeEntries([layers.flatMap(l=>l.patches), patches], warn)`，warn 里出现 `entry "xxx" not found` 就是死行。
+- **折行 plain 标量会让 StudyMate 整个跳过原生加载**：某些 YAML 序列化器会把长描述按 ~80 列折成两行（`descriptionEn: ... native` + 缩进续行 `multimodal model`）。这在 YAML 里合法、宿主解析没问题，但 `@yunmiao/studymate` 启动时用自带严格解析器读**整份** `cordis.patch.yml`，遇到多行 plain 标量就抛 `缩进比同级多了 2 个空格：同级键必须对齐（多行 plain 标量也不支持）`，然后 `已跳过原生加载` —— 结果是「学习模式」「答疑模式」两条预设**一起消失**，看起来像被删了。修法：把续行拼回上一行（语义等价），`node tools/fix-cordis-patch-fold.mjs` 幂等处理（块标量 `>-` / `|` 的内容不动）。定位方法：`node` 里 import 插件的 `bin/dsh-plugin.mjs`，用假 ctx（`get` 返回 `{name:'desktop',home}`、`agentPresets.register` 收集）跑 `apply()`，`console.warn` 里就有真实报错。
 - 只有选中「错题复习」或「错题答疑」预设的会话才有这 6 个工具。
 - 阶段一没有界面：复习仍然在对话里进行，没有侧栏面板。
 - `mb_add` 不接受图片（Data URL 太长，不适合走工具参数），要加图还是用网页。
