@@ -6,7 +6,10 @@
 # 安装方式（二选一）：
 #   1. 作为 Bundle 安装本包后，把下面整段合并进 profile 的 cordis.patch.yml；
 #   2. 直接把本文件的 insert 列表追加进 profile 的 cordis.patch.yml。
-# 路径写死为绝对路径：会话的工作目录是任意的，相对路径在别处解析不出来。
+# 下面的 <REPO> 是仓库根目录的占位符，安装前替换成你自己的绝对路径：
+#   PowerShell:  (Get-Content cordis.patch.yml) -replace '<REPO>', $PWD.Path | Set-Content cordis.patch.yml
+#   bash:        sed -i "s#<REPO>#$PWD#g" cordis.patch.yml
+# 必须用绝对路径：DSH 会话的工作目录是任意的，相对路径在别处解析不出来。
 
 # 根行（面板）：宿主只从**根 loader 行**发现 dsh.client，且行名必须是**裸包名**——
 # dsh-client-modules 的 exactPackageSpecifier 对含 "/" 的子路径返回 undefined，直接静默
@@ -31,7 +34,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: >-
-                你是错题本复习教练（复习模式）。按 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/review' 的指示走复习闭环：
+                你是错题本复习教练（复习模式）。按 '<REPO>/dsh-plugin/skills/review' 的指示走复习闭环：
                 取到期错题 → 让学生先讲自己的思路 → 出变式题 → 判分 → 用 mb_review 回写评分。
                 不写讲义、不一次讲完，一题一题来。
 
@@ -40,7 +43,7 @@
             config:
               includeDefaultRoots: false
               customSkillDirs:
-                - 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/review'
+                - '<REPO>/dsh-plugin/skills/review'
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
@@ -62,7 +65,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: >-
-                你是错题本的就地答疑（答疑模式）。按 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/qa' 的指示答：
+                你是错题本的就地答疑（答疑模式）。按 '<REPO>/dsh-plugin/skills/qa' 的指示答：
                 短、停在原地（指根因与正误对比，不写成讲义），不派角色、不安排课程。
                 问题超出这一道题时明说「这值得单独讲」，让用户回复习模式。
 
@@ -71,7 +74,7 @@
             config:
               includeDefaultRoots: false
               customSkillDirs:
-                - 'C:/Users/sh''w/Documents/deepseek-harness/default-workspace/mistake-book/dsh-plugin/skills/qa'
+                - '<REPO>/dsh-plugin/skills/qa'
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'

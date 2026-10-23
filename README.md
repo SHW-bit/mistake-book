@@ -1869,7 +1869,7 @@ v0.25 之前面板和网页版还差五处「用起来能感觉到」的东西�
 
 ### 怎么看效果
 
-`dsh-plugin` 是以**目录联接**加载的（`C:/Users/sh'w/.dsh/profiles/desktop/node_modules/dsh-mistake-book` → `mistake-book/dsh-plugin`），`lib/client.js` 改动**刷新页面即生效，不用重启 DSH**。只有 `package.json` 的 `dsh.client` 元数据才需要重启。
+`dsh-plugin` 是以**目录联接**加载的（`~/.dsh/profiles/desktop/node_modules/dsh-mistake-book` → `<仓库>/dsh-plugin`），`lib/client.js` 改动**刷新页面即生效，不用重启 DSH**。只有 `package.json` 的 `dsh.client` 元数据才需要重启。
 
 ---
 

@@ -9,13 +9,23 @@
  *      用户先手动开一个终端。拉起失败不抛，让真正的请求去报错。
  */
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-/** 错题本仓库在本机的默认位置（插件行可用 config.home 覆盖）。 */
-export const DEFAULT_HOME = "C:\\Users\\sh'w\\Documents\\deepseek-harness\\default-workspace\\mistake-book";
+/**
+ * 错题本仓库的默认位置：优先取环境变量 MISTAKE_BOOK_HOME，
+ * 否则按插件文件自身位置往上两级（dsh-plugin/lib -> 仓库根），
+ * 这样 clone 到任何目录都不用改代码。插件行仍可用 config.home 覆盖。
+ */
+export const DEFAULT_HOME = process.env.MISTAKE_BOOK_HOME
+  || fileURLToPath(new URL('../../', import.meta.url)).replace(/[\\/]+$/, '');
 /** 默认服务地址；只绑本机回环，与 app.py 的默认 --host 一致。 */
 export const DEFAULT_URL = 'http://127.0.0.1:8000';
-/** 兜底解释器路径：PATH 里没有 python 时用它（本机实测装在这里）。 */
-export const DEFAULT_PYTHON = "C:\\Users\\sh'w\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
+/**
+ * 兜底解释器：优先 MISTAKE_BOOK_PYTHON，其次 Windows 上的 py 启动器，
+ * 最后交给 PATH 里的 python（不硬编码某个人的安装路径）。
+ */
+export const DEFAULT_PYTHON = process.env.MISTAKE_BOOK_PYTHON
+  || (process.platform === 'win32' ? 'py' : 'python3');
 
 /**
  * 归一化插件配置。

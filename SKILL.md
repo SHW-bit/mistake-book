@@ -23,7 +23,7 @@ AI 让学习「感觉」变容易了，这恰恰是问题。四个认知陷阱�
 
 ## 路径
 
-- 项目目录：`C:/Users/sh'w/Documents/deepseek-harness/default-workspace/mistake-book`
+- 项目目录：本 SKILL.md 所在目录（仓库根）。命令都在这个目录里执行；不确定就先 `pwd` 看一眼。
 - CLI：`mb.py`（默认读 `data/mistakes.db`，可用 `--db` 指定）
 - Python：直接用 `python`（3.9+，仅标准库，无需虚拟环境）
 - 网页端（可选，人工浏览/录入）：`python app.py --port 8765` → http://127.0.0.1:8765
@@ -314,7 +314,7 @@ python mb.py --read-only list           # 只读模式，拒绝写操作
 
 ## 安装（可选）
 
-本文件已在 `C:\Users\sh'w\.dsh\skills\mistake-book-ai-tutor\SKILL.md`，DSH 会话会自动发现。换机器时复制到 `$env:USERPROFILE/.dsh/skills/mistake-book-ai-tutor/` 即可（PowerShell 里 `New-Item -ItemType Directory -Force` 建目录再 `Copy-Item`）。
+把本文件复制到 `$env:USERPROFILE/.dsh/skills/mistake-book-ai-tutor/SKILL.md`（PowerShell：`New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.dsh\skills\mistake-book-ai-tutor"` 再 `Copy-Item SKILL.md "$env:USERPROFILE\.dsh\skills\mistake-book-ai-tutor\SKILL.md"`），DSH 会话就会自动发现它。
 
 ## 网页端（人用）
 
