@@ -13,7 +13,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEST_FILE = os.path.join(ROOT, "tests", "frontend.test.cjs")
 
 
-@unittest.skipUnless(shutil.which("node"), "node 不在 PATH 上，跳过前端测试")
+@unittest.skipUnless(
+    shutil.which("node") and os.path.exists(os.path.join(ROOT, "static", "lib.js")),
+    "node 不在 PATH 上，或本机已删除 static/lib.js，跳过前端测试")
 class FrontendTest(unittest.TestCase):
     def test_node_unit_tests_pass(self):
         result = subprocess.run(

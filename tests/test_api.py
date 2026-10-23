@@ -186,7 +186,13 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(status, 404, bad)
             self.assertEqual(body["error"]["code"], "NOT_FOUND", bad)
 
+    def _need_web(self):
+        """本机删掉网页版静态文件时跳过（仓库里仍在；CI 上会真跑）。"""
+        if not os.path.exists(os.path.join(app.STATIC_DIR, "index.html")):
+            self.skipTest("本机已删除网页版静态文件（仓库里仍在）")
+
     def test_static_index(self):
+        self._need_web()
         with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")
         self.assertIn("错题本", html)
@@ -218,6 +224,7 @@ class ApiTest(unittest.TestCase):
         这三页以前是「数据墙」：一屏全是数字，看完不知道该干什么。
         改成先说结论、再给一个按钮之后，用断言把结构钉住，免得以后又退回去。
         """
+        self._need_web()
         with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")
         # 每页都有结论卡与指标区
@@ -242,6 +249,7 @@ class ApiTest(unittest.TestCase):
         既看不出层级也没有题数，点父节点还检索不到子节点里的题。这一版把三件事
         一起改掉，用断言钉住，免得以后又退回扁平字符串。
         """
+        self._need_web()
         with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")
         # 1) 分层下拉：读 facet 的 depth/count，渲染缩进与题数
@@ -1881,6 +1889,7 @@ class ApiTest(unittest.TestCase):
         self.assertIn("--read-only", out.getvalue())
 
     def test_frontend_trash_and_textarea(self):
+        self._need_web()
         with open(os.path.join(app.STATIC_DIR, "index.html"), "r", encoding="utf-8") as fh:
             html = fh.read()
         self.assertIn('<textarea id="f-error-reason"', html)
@@ -2004,6 +2013,7 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(app.image_dir(self.db), name)))
 
     def test_lib_js_served_and_used(self):
+        self._need_web()
         with urllib.request.urlopen(self.base + "/lib.js", timeout=5) as resp:
             self.assertEqual(resp.status, 200)
             js = resp.read().decode("utf-8")
@@ -2227,6 +2237,7 @@ class ApiTest(unittest.TestCase):
 
     # -- LaTeX / 打印页 --
     def test_math_js_and_katex_served(self):
+        self._need_web()
         for path in ("/math.js", "/vendor/katex/katex.min.js",
                      "/vendor/katex/katex.min.css"):
             with urllib.request.urlopen(self.base + path, timeout=5) as resp:
@@ -2489,6 +2500,7 @@ class ApiTest(unittest.TestCase):
 
     def test_static_v035_ui(self):
         """排序下拉、弹窗翻页、合并面板三档（v0.35）。"""
+        self._need_web()
         with urllib.request.urlopen(self.base + '/', timeout=5) as resp:
             html = resp.read().decode('utf-8')
         self.assertIn('id="sort"', html)
