@@ -1,6 +1,6 @@
 ---
 name: mistake-book-ai-tutor
-description: 用本地错题本驱动 AI 学习闭环：取到期错题→出变式题→判分→按 FSRS 回写复习计划；含知识点树、到期提醒、变式缺口。当用户说「练错题」「复习错题」「用错题本学习」「我哪里弱」「考考我」「再战」「专练反复错的题」「今天该复习啥」「我哪个知识点最弱」时使用。
+description: 用本地错题本驱动 AI 学习闭环：取到期错题→出变式题→判分→按 FSRS 回写复习计划；含知识点树、到期提醒、变式缺口。当用户说「练错题」「复习错题」「用错题本学习」「我哪里弱」「考考我」「再战」「专练反复错的题」「今天该复习啥」「我哪个知识点最弱」「我总在哪一步错」「我反复错的是什么模式」时使用。
 ---
 
 # 错题本 AI 学习闭环
@@ -123,6 +123,18 @@ python mb.py arena --limit 5
 
 判完立刻回写，别攒着。用掉的变式记一次：`python mb.py variant use <vid>`。
 
+**顺手记「错在哪一步」**：判 `again` / `hard` 时，如果你能判断学生卡在哪一步，加 `--step`：
+
+```bash
+python mb.py review 12 --rating hard --step 计算
+```
+
+取值只有六档：`审题 / 建模 / 计算 / 检验 / 表达 / 记忆`（[app.py](app.py) 的 `REVIEW_STEPS`，别的值会被 400 拒掉）。
+
+- **判断不出来就别填。** 瞎填比不填更糟——统计会得出错误的「你总在计算上错」。
+- 只在真的观察到断点时才用：学生式子列对了但算错 → `计算`；看错条件 → `审题`；思路搭不起来 → `建模`；答案对但写不出过程 → `表达`；会做但记不住公式 → `记忆`；算完没检查出明显错 → `检验`。
+- 这是**可选**的，判分主流程不依赖它。
+
 **更省事的做法**：如果你这一轮现场出了变式（不是从库存里拿的），直接把它塞进 review 一起提交，一次调用同时判分 + 入库 + 计一次使用：
 
 ```bash
@@ -148,6 +160,38 @@ python mb.py review 12 --rating hard \
 ```bash
 python mb.py profile     # 按知识点聚合的画像，每条带 evidence_review_ids
 python mb.py mastery     # 哪些知识点真过了门禁、没过的差在哪
+```
+
+## 断点模式（「我总在哪一步错」）
+
+用户问「我哪里弱」「我总错在哪」时，先看断点分布，不要凭印象说：
+
+```bash
+python mb.py analytics --days 30
+```
+
+返回里两个键是断点相关（其余是趋势 / 保持度 / 薄弱知识点）：
+
+| 键 | 含义 | 怎么用 |
+|---|---|---|
+| `by_step` | 每步各错了多少次 | 「你最近 30 天 8 次断点里 5 次在计算」 |
+| `step_patterns` | 同一知识点同一步错 ≥2 次的组合（最多 10 条） | 「极限题你反复卡在计算，这不是不会，是算不稳」 |
+
+在 DSH 里（已装 `dsh-mistake-book` 工具）等价的两个工具：`mb_weak_steps(days, limit)` 直接返回分布与模式，`mb_events(limit, kind, id)` 读事件流水。
+
+**怎么用这些结论**（重要）：
+- `计算` / `检验` 反复错 → 不是补概念，是**练过程**：要求写完整步骤、答完回头验一次。
+- `审题` 反复错 → 让学生先复述条件再动笔，别急着讲知识点。
+- `建模` 反复错 → 回到「这类题的识别特征」，做题型归类，而不是刷同类题。
+- `表达` 反复错 → 判分时把「过程分」单列，别只看结果对不对。
+- `记忆` 反复错 → 这才是该上间隔重复的部分，缩短间隔、加抽认。
+
+**事件流水**（建题 / 评分 / 斩题 / 恢复，追加在 `events.ndjson`，跟 `--db` 同目录）：
+
+```bash
+python mb.py stream --limit 20                # JSON 数组
+python mb.py stream --limit 20 --ndjson       # 一行一条，适合管道
+python mb.py stream --kind reviewed --id 12   # 只看某题的评分
 ```
 
 ## 出题规则（零提示）
@@ -232,6 +276,8 @@ python mb.py due --limit 3              # 到期错题（一次别超过 3 道�
 python mb.py list --subject 高数        # 按学科
 python mb.py show 12                    # 单题详情 + 复习历史 + 四档间隔
 python mb.py review 12 --rating hard
+python mb.py review 12 --rating hard --step 计算   # 顺手记断点（六档）
+python mb.py stream --limit 20 --ndjson        # 事件流水（建题/评分/斩题/恢复）
 python mb.py add --question 题干 --answer 答案 --subject 高数 --mistake-type 概念不清
 python mb.py import --file 错题.txt   # 批量导入（--- 分题）
 python mb.py variant next 12            # 下一道该练的变式
@@ -248,7 +294,7 @@ python mb.py alias rm 求导              # 删别名
 python mb.py profile                    # 学习画像（薄弱知识点 + 证据）
 python mb.py mastery                    # 掌握门禁：过线 / 差在哪
 python mb.py plan --days 7 --limit 10   # 今日复习计划（按天分桶 + 每日上限）
-python mb.py analytics --days 30        # 趋势 / 保持度分布 / 最薄弱知识点
+python mb.py analytics --days 30        # 趋势 / 保持度 / 最薄弱知识点 / 断点分布（by_step / step_patterns）
 python mb.py arena --limit 5            # 再战区：默认错 2 次以上、还没连对 2 次的题
 python mb.py settings                   # 查看再战区阈值
 python mb.py settings --arena-min-wrong 3 --arena-clear-streak 2   # 改阈值
