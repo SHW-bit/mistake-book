@@ -130,7 +130,7 @@ const DETAIL = { id: 6, question: '求 lim(x→0) sin x / x', answer: '1', analy
   my_answer: '0', mistake_type: '概念不清', knowledge: '极限', review_count: 2,
   subject: '高数', difficulty: 3, tags: '极限,洛必达' };
 
-// Dropdown 的 hooks 顺序：open, active
+// Dropdown 的 hooks 顺序：open, active, pos, dark（后两个来自 usePopupAnchor）
 test('自定义下拉：关闭态只显示当前项，展开态列出全部并标出选中项', () => {
   const options = [{ value: '', label: '全部学科' }, { value: '高数', label: '高数' },
     { value: '线代', label: '线代', disabled: true }];
@@ -175,7 +175,7 @@ test('自定义下拉：按宿主文字亮度决定弹层深浅', () => {
 // 弹层在滚动容器里会被裁（详情区、表单区都是 overflow:auto），所以定位改成 fixed。
 test('自定义下拉：拿到坐标后用 fixed 定位，避开滚动容器裁剪', () => {
   const options = [{ value: 'a', label: '甲' }, { value: 'b', label: '乙' }];
-  const opened = render(loadPlugin([true, 0, false, { top: 120, left: 36, width: 168, maxHeight: 200 }])
+  const opened = render(loadPlugin([true, 0, { top: 120, left: 36, width: 168, maxHeight: 200 }, false])
     .plugin.__test__.Dropdown({ value: 'a', options, onChange: () => {} }));
   const pop = opened.children[1];
   assert.equal(pop.props.style.position, 'fixed');
@@ -185,7 +185,7 @@ test('自定义下拉：拿到坐标后用 fixed 定位，避开滚动容器裁�
   assert.equal(pop.props.style.maxHeight, '200px');
 
   // 没有坐标（首帧 / 无 window）时退回 CSS 里的 absolute，不能崩
-  const plain = render(loadPlugin([true, 0, false, null])
+  const plain = render(loadPlugin([true, 0, null, false])
     .plugin.__test__.Dropdown({ value: 'a', options, onChange: () => {} }));
   assert.equal(plain.children[1].props.style, null);
 });
@@ -218,6 +218,12 @@ test('自定义下拉：弹层两种配色的对比度都过 WCAG AA', () => {
   const dark = colorsOf(blockOf('.mb-dd-pop.dark'));
   assert.ok(contrast(light.bg, light.fg) >= 4.5, '浅色弹层对比度不足：' + contrast(light.bg, light.fg).toFixed(2));
   assert.ok(contrast(dark.bg, dark.fg) >= 4.5, '深色弹层对比度不足：' + contrast(dark.bg, dark.fg).toFixed(2));
+
+  // 「更多」菜单（.mb-pop）同样要过：v0.24.1 之前它只写 background 不写 color
+  const popLight = colorsOf(blockOf('.mb-pop'));
+  const popDark = colorsOf(blockOf('.mb-pop.dark'));
+  assert.ok(contrast(popLight.bg, popLight.fg) >= 4.5, '浅色浮层对比度不足：' + contrast(popLight.bg, popLight.fg).toFixed(2));
+  assert.ok(contrast(popDark.bg, popDark.fg) >= 4.5, '深色浮层对比度不足：' + contrast(popDark.bg, popDark.fg).toFixed(2));
 });
 
 test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
@@ -273,6 +279,29 @@ test('筛选抽屉与条件 chip：勾上的项能单独清除', () => {
   assert.match(text, /全部错因/);
   assert.match(text, /只搜题干/);
   assert.match(text, /含已斩题/);
+});
+
+// 「更多」菜单：窄面板下按钮被挤到第二行左端，right:0 会把菜单推到视口外；
+// 所以它跟下拉一样走 fixed + 坐标夹取，并且必须有 .mb-pop 的显式配色。
+test('更多菜单：展开后带 mb-pop 配色与定位，点外部能收起', () => {
+  const seed = [Object.assign({}, FILTERS), [], 0, false, '', {}, false, false, true, false, ''];
+  const { plugin } = loadPlugin(seed);
+  const dom = render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }));
+  const classes = classesOf(dom).join(' ');
+  assert.match(classes, /mb-pop/, '菜单要有 mb-pop（显式底色+字色）');
+  const menu = (function find(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (Array.isArray(node)) { for (const kid of node) { const hit = find(kid); if (hit) return hit; } return null; }
+    if (node.props && String(node.props.role) === 'menu') return node;
+    if (node.children) { for (const kid of node.children) { const hit = find(kid); if (hit) return hit; } }
+    return null;
+  })(dom);
+  assert.ok(menu, '要渲染出 role=menu 的菜单');
+  assert.equal(menu.props.style.position, 'absolute', '没有坐标时退回 CSS 兜底');
+  const text = textOf(menu).join('|');
+  assert.match(text, /批量导入/);
+  assert.match(text, /导出 CSV/);
+  assert.match(text, /备份 JSON/);
 });
 
 // DetailPane 的 hooks 顺序：item, error, revealed, editing, busy, note, step, preview, ai

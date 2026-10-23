@@ -76,6 +76,9 @@ window.__ModuleLoader__.load({
       '.mb-label{font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--mb-dim,rgba(127,127,127,.95));margin-bottom:5px}',
       '.mb-text{white-space:pre-wrap;line-height:1.65;word-break:break-word}',
       '.mb-panel{border:1px solid var(--mb-line,rgba(127,127,127,.22));border-radius:9px;padding:10px 12px;background:var(--mb-subtle,rgba(127,127,127,.05))}',
+      // 浮层（「更多」菜单）必须有底色 + 同色系字：只给 background 不给 color，深色主题下会白底浅字。
+      '.mb-pop{box-sizing:border-box;background:#fff;color:#1c1c19;border:1px solid rgba(127,127,127,.35);box-shadow:0 10px 26px rgba(0,0,0,.18)}',
+      '.mb-pop.dark{box-sizing:border-box;background:#24262a;color:#e9e9ec;border-color:rgba(255,255,255,.16);box-shadow:0 10px 26px rgba(0,0,0,.45)}',
       '.mb-reveal{display:flex;align-items:center;gap:8px;margin:6px 0 12px;flex-wrap:wrap}',
       '.mb-step{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--mb-dim,rgba(127,127,127,.95))}',
       '.mb-rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:8px}',
@@ -107,7 +110,7 @@ window.__ModuleLoader__.load({
       '.mb-dd.open .mb-dd-caret{transform:rotate(180deg)}',
       // 弹层是不透明面板，必须自带前景色：面板整体用 color:inherit 跟随宿主主题，
       // 只给背景不给字色时，深色主题下会变成「浅字 + 白底」= 看不见。
-      '.mb-dd-pop{position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow:auto;background:#fff;color:#1c1c19;border:1px solid rgba(127,127,127,.35);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18);padding:4px;display:grid;gap:2px}',
+      '.mb-dd-pop{box-sizing:border-box;position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow:auto;background:#fff;color:#1c1c19;border:1px solid rgba(127,127,127,.35);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18);padding:4px;display:grid;gap:2px}',
       '.mb-dd-pop.dark{background:#24262a;color:#e9e9ec;border-color:rgba(255,255,255,.16);box-shadow:0 10px 26px rgba(0,0,0,.45)}',
       '.mb-dd-opt{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;border:0;background:transparent;color:inherit;font-family:inherit;font-size:12px;text-align:left;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
       '.mb-dd-opt.active{background:rgba(127,127,127,.16)}',
@@ -740,6 +743,51 @@ window.__ModuleLoader__.load({
       return lum > 0.55;
     }
 
+    // 弹层定位（下拉与「更多」菜单共用一套，避免两处算法漂移）：
+    // ① 用 fixed 而不是 absolute —— 详情区、表单区都是 overflow:auto，absolute 会被裁掉；
+    // ② 下方放不下就向上翻，左右夹在视口内；
+    // ③ 顺便按触发按钮的文字亮度决定深/浅配色（面板整体 color:inherit，深色主题会继承到浅字）。
+    function usePopupAnchor(open, ref, selector, minWidth) {
+      const [pos, setPos] = useState(null);
+      const [dark, setDark] = useState(false);
+      useEffect(() => {
+        if (!open) { setPos(null); return undefined; }   // 收起时清掉旧坐标，避免下次展开闪一帧
+        if (typeof window === 'undefined') return undefined;
+        const place = () => {
+          const node = ref.current;
+          const btn = !node ? null : (selector ? (node.querySelector ? node.querySelector(selector) : null) : node);
+          if (!btn || !btn.getBoundingClientRect) return;
+          const rect = btn.getBoundingClientRect();
+          const gap = 4;
+          const vh = window.innerHeight || 800;
+          const vw = window.innerWidth || 800;
+          const below = vh - rect.bottom - gap - 8;
+          const above = rect.top - gap - 8;
+          const openUp = below < 140 && above > below;
+          const height = Math.max(80, Math.min(240, openUp ? above : below));
+          const width = Math.max(rect.width, minWidth || 120);
+          const left = Math.max(8, Math.min(rect.left, vw - width - 8));
+          setPos({
+            top: openUp ? Math.max(8, rect.top - gap - height) : rect.bottom + gap,
+            left,
+            width,
+            // 自然宽度可能比按钮宽（选项文案长），只夹 left 会顶出右边界，所以再给一个上限
+            maxWidth: Math.max(80, vw - left - 8),
+            maxHeight: height,
+          });
+          try { setDark(isLightColor(window.getComputedStyle(btn).color)); } catch (err) { setDark(false); }
+        };
+        place();
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        return () => {
+          window.removeEventListener('scroll', place, true);
+          window.removeEventListener('resize', place);
+        };
+      }, [open]);
+      return { pos, dark };
+    }
+
     // 原生 select 的弹层没法用 CSS 管，长选项会被系统截断；这里用按钮 + 弹层自己实现。
     // 键盘：↑↓ 移动、Enter/Space 选中、Esc 关闭；点外部关闭；禁用项跳过。
     function Dropdown(props) {
@@ -747,9 +795,8 @@ window.__ModuleLoader__.load({
       const cur = props.value == null ? '' : String(props.value);
       const [open, setOpen] = useState(false);
       const [active, setActive] = useState(-1);
-      const [dark, setDark] = useState(false);   // 弹层按宿主主题深浅选配色
-      const [pos, setPos] = useState(null);      // 弹层用 fixed 定位，避开滚动容器的裁剪
       const rootRef = useRef(null);
+      const { pos, dark } = usePopupAnchor(open, rootRef, '.mb-dd-btn', 120);
 
       const currentIndex = list.findIndex((opt) => String(opt.value) === cur);
       const currentLabel = currentIndex >= 0 ? list[currentIndex].label : (props.placeholder || '请选择');
@@ -765,51 +812,6 @@ window.__ModuleLoader__.load({
         return () => document.removeEventListener('mousedown', onDown, true);
       }, [open]);
 
-      // 面板整体 color:inherit，宿主是深色主题时继承到浅色字；弹层必须有底色+同色系字，
-      // 所以展开时读一次当前文字亮度，浅字就用深色弹层，反之用白底。
-      useEffect(() => {
-        if (!open || typeof window === 'undefined' || !rootRef.current) return;
-        try {
-          const node = rootRef.current;
-          const btn = node.querySelector ? node.querySelector('.mb-dd-btn') : null;
-          const color = window.getComputedStyle(btn || node).color || '';
-          setDark(isLightColor(color));
-        } catch (err) { /* 拿不到样式就按浅色走 */ }
-      }, [open]);
-
-      // 弹层若留在滚动容器里（详情区、表单区都是 overflow:auto），靠下的下拉一展开就被裁掉。
-      // 改成 fixed + 按按钮矩形定位：下方放不下就向上翻，左右夹在视口内，滚动/缩放时重算。
-      useEffect(() => {
-        if (!open) { setPos(null); return undefined; }   // 收起时清掉旧坐标，避免下次展开闪一帧
-        if (typeof window === 'undefined' || !rootRef.current) return undefined;
-        const place = () => {
-          const node = rootRef.current;
-          const btn = node && node.querySelector ? node.querySelector('.mb-dd-btn') : null;
-          if (!btn || !btn.getBoundingClientRect) return;
-          const rect = btn.getBoundingClientRect();
-          const gap = 4;
-          const vh = window.innerHeight || 800;
-          const vw = window.innerWidth || 800;
-          const below = vh - rect.bottom - gap - 8;
-          const above = rect.top - gap - 8;
-          const openUp = below < 140 && above > below;
-          const height = Math.max(80, Math.min(240, openUp ? above : below));
-          const width = Math.max(rect.width, 120);
-          setPos({
-            top: openUp ? Math.max(8, rect.top - gap - height) : rect.bottom + gap,
-            left: Math.max(8, Math.min(rect.left, vw - width - 8)),
-            width,
-            maxHeight: height,
-          });
-        };
-        place();
-        window.addEventListener('scroll', place, true);
-        window.addEventListener('resize', place);
-        return () => {
-          window.removeEventListener('scroll', place, true);
-          window.removeEventListener('resize', place);
-        };
-      }, [open]);
 
       const pick = (opt) => {
         if (!opt || opt.disabled) return;
@@ -861,7 +863,7 @@ window.__ModuleLoader__.load({
           role: 'listbox',
           style: pos ? {
             position: 'fixed', top: pos.top + 'px', left: pos.left + 'px',
-            minWidth: pos.width + 'px', maxHeight: pos.maxHeight + 'px',
+            minWidth: pos.width + 'px', maxWidth: pos.maxWidth + 'px', maxHeight: pos.maxHeight + 'px',
           } : null,
         },
           list.length ? list.map((opt, index) => h(
@@ -896,6 +898,21 @@ window.__ModuleLoader__.load({
       const [moreOpen, setMoreOpen] = useState(false);
       const [showFilters, setShowFilters] = useState(false);
       const [qLive, setQLive] = useState('');
+      const moreBtnRef = useRef(null);
+      const morePop = usePopupAnchor(moreOpen, moreBtnRef, null, 150);   // 「更多」菜单同样 fixed 定位
+
+      // 点外部收起（原来只能再点一次按钮，或点菜单项）
+      useEffect(() => {
+        if (!moreOpen || typeof document === 'undefined') return undefined;
+        const onDown = (event) => {
+          const btn = moreBtnRef.current;
+          const box = btn && btn.parentNode;
+          if (box && box.contains && box.contains(event.target)) return;
+          setMoreOpen(false);
+        };
+        document.addEventListener('mousedown', onDown, true);
+        return () => document.removeEventListener('mousedown', onDown, true);
+      }, [moreOpen]);
 
       const patch = (next) => setFilters((current) => Object.assign({}, current, next, { page: 1 }));
 
@@ -1004,8 +1021,21 @@ window.__ModuleLoader__.load({
             h('button', { className: filters.due ? '' : 'on', onClick: () => patch({ due: false }) }, '全部')),
           h('span.mb-spacer'),
           h('div', { style: { position: 'relative' } },
-            h('button.mb-btn', { type: 'button', onClick: (event) => { event.stopPropagation(); setMoreOpen(!moreOpen); } }, '更多 ▾'),
-            moreOpen ? h('div.mb-panel', { style: { position: 'absolute', right: '0', top: '30px', zIndex: '30', minWidth: '150px', background: 'var(--mb-surface,#fff)', display: 'grid', gap: '4px' } },
+            h('button.mb-btn', {
+              type: 'button', ref: moreBtnRef,
+              'aria-haspopup': 'menu', 'aria-expanded': moreOpen ? 'true' : 'false',
+              onClick: (event) => { event.stopPropagation(); setMoreOpen(!moreOpen); },
+            }, '更多 ▾'),
+            moreOpen ? h(morePop.dark ? 'div.mb-panel.mb-pop.dark' : 'div.mb-panel.mb-pop', {
+              role: 'menu',
+              // 面板宽度只有 340px 左右，按钮常被挤到第二行左端；right:0 会让 150px 的菜单跑到视口外，
+              // 所以跟下拉一样用 fixed + 坐标夹取。
+              style: morePop.pos ? {
+                position: 'fixed', top: morePop.pos.top + 'px', left: morePop.pos.left + 'px',
+                minWidth: Math.max(morePop.pos.width, 150) + 'px', maxWidth: morePop.pos.maxWidth + 'px', maxHeight: morePop.pos.maxHeight + 'px',
+                overflow: 'auto', zIndex: '30', display: 'grid', gap: '4px',
+              } : { position: 'absolute', right: '0', top: '30px', zIndex: '30', minWidth: '150px', display: 'grid', gap: '4px' },
+            },
               h('button.mb-btn', { type: 'button', onClick: () => { setImportOpen(true); setMoreOpen(false); } }, '批量导入'),
               h('a.mb-btn', { href: rawUrl('/api/export.csv'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '导出 CSV'),
               h('a.mb-btn', { href: rawUrl('/api/export.json'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '备份 JSON')) : null)),
