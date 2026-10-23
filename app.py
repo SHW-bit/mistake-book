@@ -509,10 +509,12 @@ def images_of(conn: sqlite3.Connection, mid: int, with_data: bool = False) -> li
         legacy = conn.execute("SELECT image_file FROM mistakes WHERE id = ?", (mid,)).fetchone()
         if legacy is not None and legacy["image_file"]:
             pairs = [(legacy["image_file"], "")]
-    base = image_dir(db_path_of(conn)) if with_data else ""
+    base = image_dir(db_path_of(conn))
     out = []
     for name, field in pairs:
-        entry = {"file": name, "url": image_url(name), "field": field}
+        # path：给 agent 用（read_image 直接开这张图），纯图片题没有题干时它是唯一内容
+        entry = {"file": name, "url": image_url(name), "field": field,
+                 "path": os.path.join(base, name)}
         if with_data:
             entry["data"] = image_data_url(os.path.join(base, name))
         out.append(entry)
@@ -620,8 +622,6 @@ def normalize(body: dict, base: dict | None = None) -> dict:
 
     subject = text("subject") or "未分类"
     question = text("question")
-    if not question:
-        raise ValidationError("题目内容不能为空")
     if len(question) > 20000:
         raise ValidationError("题目内容过长（上限 20000 字）")
 
@@ -695,6 +695,15 @@ def normalize(body: dict, base: dict | None = None) -> dict:
             cleaned.append({"value": entry, "field": field if field in IMAGE_FIELDS else ""})
         raw_images = cleaned
 
+    # v0.52：题干允许留空，只要这道题有图（截图录题是主要用法）。
+    # 本次带了 images → 看这组图；没带（更新场景）→ 看库里原有的图。
+    if raw_images is not None:
+        has_images = bool(raw_images)
+    else:
+        has_images = bool(base.get("image_file") or base.get("has_image"))
+    if not question and not has_images:
+        raise ValidationError("题目内容不能为空（题干和图片至少填一个）")
+
     paper_id = body["paper_id"] if "paper_id" in body else base.get("paper_id", 0)
     paper_id = to_int(paper_id, 0)
     if paper_id < 0:
@@ -743,7 +752,8 @@ def create_mistake(conn: sqlite3.Connection, body: dict) -> dict:
     data["paper_id"] = _check_paper(conn, data["paper_id"])
     files = _apply_images(conn, data, [])
     data["image_file"] = files[0]["file"] if files else ""
-    dup = _find_recent_duplicate(conn, data["question"])
+    # 纯图片题没有题干，全部空题干会被「3 秒内同题干」判成重复，所以空题干不参与去重。
+    dup = _find_recent_duplicate(conn, data["question"]) if data["question"] else None
     if dup is not None:
         item = get_mistake(conn, dup["id"])
         item["duplicate"] = True

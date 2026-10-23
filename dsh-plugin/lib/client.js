@@ -382,6 +382,15 @@ window.__ModuleLoader__.load({
       return value.length > max ? value.slice(0, max) + '…' : value;
     }
 
+    /** 列表/详情标题：纯图片题没有题干，用「图片题」占位，别渲染成空行。 */
+    function qTitle(item, max) {
+      const source = item || {};
+      const text = clip(source.question, max || 60);
+      if (text) return text;
+      const count = Array.isArray(source.images) ? source.images.length : (source.has_image ? 1 : 0);
+      return count ? '（图片题 · ' + count + ' 张）' : '（空题）';
+    }
+
     function dayOf(stamp) {
       const text = String(stamp || '');
       const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
@@ -685,7 +694,7 @@ window.__ModuleLoader__.load({
         !rows ? h('div.mb-empty', null, '读取中…') : !items.length
           ? h('div.mb-empty.compact', null, '还没有变式。加一条同知识点的新题，练习时就会轮换到它。')
           : h('div.mb-panel', null, items.map((row) => h('div.mb-hrow', { key: row.id },
-              h(MathText, { className: 'mb-q', style: { flex: '1 1 auto', minWidth: '0' }, text: clip(row.question, 60) }),
+              h(MathText, { className: 'mb-q', style: { flex: '1 1 auto', minWidth: '0' }, text: qTitle(row, 60) }),
               h('span.mb-htime', null, '练过 ' + (row.times_used || 0) + ' 次'),
               h('button.mb-btn.mini', { type: 'button', onClick: () => void used(row.id) }, '练过'),
               h('button.mb-btn.mini', { type: 'button', onClick: () => void drop(row.id) }, '删')))),
@@ -777,7 +786,7 @@ window.__ModuleLoader__.load({
       };
 
       const submit = () => {
-        if (!String(form.question).trim()) return;
+        if (!String(form.question).trim() && !images.length) return;
         const body = Object.assign({}, form, { difficulty: Number(form.difficulty) || 3 });
         if (dirty) {
           body.images = images.map((img) => (img.data
@@ -822,8 +831,8 @@ window.__ModuleLoader__.load({
       return h('div.mb-form.mb-form2', null,
         h('div.mb-fmain', null,
           h('div.mb-fb.top', blockProps('question'),
-            head('question', '题目（必填）'),
-            h('textarea', { value: form.question, onChange: set('question'), rows: 6, placeholder: '粘贴题干…（截图可直接 Ctrl+V）' }),
+            head('question', '题目（题干或截图，至少一样）'),
+            h('textarea', { value: form.question, onChange: set('question'), rows: 6, placeholder: '粘贴题干，或者只贴/拖一张截图（Ctrl+V）' }),
             strip('question')),
           h('div.mb-fb.me', blockProps('wrong'),
             head('wrong', '我的错误答案'),
@@ -881,7 +890,7 @@ window.__ModuleLoader__.load({
               h('div.mb-field', null, h('span', null, '错因详细描述'),
                 h('input', { value: form.error_reason, onChange: set('error_reason') }))))),
         h('div.mb-formfoot', { style: { gridColumn: '1 / -1' } },
-          h('button.mb-btn.primary', { type: 'button', onClick: submit, disabled: busy || !String(form.question).trim() },
+          h('button.mb-btn.primary', { type: 'button', onClick: submit, disabled: busy || (!String(form.question).trim() && !images.length) },
             busy ? '保存中…' : (submitLabel || '保存')),
           h('button.mb-btn', { type: 'button', onClick: onCancel, disabled: busy }, '取消'),
           error ? h('span.mb-note.bad', null, error) : null));
@@ -1037,7 +1046,7 @@ window.__ModuleLoader__.load({
         backBar,
         h('div.mb-card.q', null,
           h('div.mb-cardhead', null, '题目 #' + item.id),
-          h(MathText, { className: 'mb-qbig', text: item.question || '' }),
+          h(MathText, { className: 'mb-qbig', text: item.question || '（纯图片题）' }),
           imgRow(questionImgs)),
         (item.my_answer || wrongImgs.length) ? h('div.mb-card', null,
           h('div.mb-cardhead', null, '我的答案'),
@@ -1436,7 +1445,7 @@ window.__ModuleLoader__.load({
             }),
             // 列表请求本来就带 thumbs=1（app.py 在 thumbs 时多回 image_file），这里直接用，不多发请求
             h('div.mb-main', { onClick: () => onOpen(item.id, 'review') },
-              h(MathText, { className: 'mb-q', text: clip(item.question, 120) }),
+              h(MathText, { className: 'mb-q', text: qTitle(item, 120) }),
               h('div.mb-tags', null,
                 due ? h('span.mb-badge.overdue', null, due) : null,
                 h('span.mb-tag', null, item.subject || '未分科'),
@@ -1869,7 +1878,7 @@ window.__ModuleLoader__.load({
                   key: row.id, type: 'button', title: '打开原题 #' + row.id,
                   onClick: () => { if (onOpen) onOpen(row.id); },
                 },
-                  h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(row.question, 70) }),
+                  h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(row, 70) }),
                   h('span.mb-htime', null, (row.variant_count ? '变式 ' + row.variant_count + ' 条' : '无变式') + ' · 错 ' + row.wrong + ' 次'))))
               : h('div.mb-empty.compact', null, '暂时没有缺口。'))));
     }
@@ -1962,7 +1971,7 @@ window.__ModuleLoader__.load({
                 key: item.id, type: 'button', title: onOpen ? '在「错题」页打开这道题' : '',
                 onClick: () => { if (onOpen) onOpen(item.id); },
               },
-                h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(item.question, 70) }),
+                h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(item, 70) }),
                 h('span.mb-badge', null, item.subject || '未分科'),
                 dueText(item) ? h('span.mb-badge.overdue', null, dueText(item)) : null)))
           : h('div.mb-empty.compact', null, '今天没有到期题。'),
@@ -1976,7 +1985,7 @@ window.__ModuleLoader__.load({
                   key: item.id, type: 'button',
                   onClick: () => { if (onOpen) onOpen(item.id); },
                 },
-                  h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(item.question, 70) }),
+                  h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(item, 70) }),
                   h('span.mb-badge', null, item.subject || '未分科')))))))
           : null,
 
@@ -2290,7 +2299,7 @@ window.__ModuleLoader__.load({
                 h('span.mb-badge', null, '连对 ' + item.correct_streak + '/' + item.need_streak),
                 h('span.mb-badge', null, '正确率 ' + (item.accuracy === null || item.accuracy === undefined ? '—' : Math.round(item.accuracy * 100) + '%')),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void suspend(item.id) }, '斩题')),
-              h(MathText, { style: { marginTop: '6px' }, text: clip(item.question, 160) }),
+              h(MathText, { style: { marginTop: '6px' }, text: qTitle(item, 160) }),
               h('div.mb-meta', null,
                 h('span', null, '上次：' + (RESULT_LABEL[item.last_result] || '未复习')),
                 item.last_reviewed_at ? h('span', null, String(item.last_reviewed_at).slice(0, 10)) : null,
@@ -2347,7 +2356,7 @@ window.__ModuleLoader__.load({
                 h('span.mb-spacer'),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void act(item.id, true) }, '恢复'),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void act(item.id, false) }, '彻底删除')),
-              h(MathText, { style: { marginTop: '6px' }, text: clip(item.question, 160) }))),
+              h(MathText, { style: { marginTop: '6px' }, text: qTitle(item, 160) }))),
             report.total > report.items.length
               ? h('div.mb-empty', null, '共 ' + report.total + ' 条，只显示最近 ' + report.items.length + ' 条') : null));
     }

@@ -443,7 +443,7 @@ test('详情：编辑模式直接进表单，且不显示评分条', () => {
   const seed = [DETAIL, '', true, true, false, null, '', null, null];
   const dom = render(loadPlugin(seed).plugin.__test__.DetailPane({ id: 6, mode: 'edit', meta: META }));
   const text = textOf(dom).join('|');
-  assert.match(text, /题目（必填）/);
+  assert.match(text, /题目（题干或截图，至少一样）/);
   assert.match(text, /保存修改/);
   assert.ok(!text.includes('让 AI 带我复习这道'));
 });
@@ -474,7 +474,7 @@ test('新建表单：字段齐全，保存与取消都在', () => {
     meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
   }));
   const text = textOf(dom).join('|');
-  for (const label of ['题目（必填）', '我的错误答案', '正确答案', '解析', '学科',
+  for (const label of ['题目（题干或截图，至少一样）', '我的错误答案', '正确答案', '解析', '学科',
     '知识点', '错因分类', '来源', '标签（逗号分隔）', '难度', '状态', '保存', '取消']) {
     assert.ok(text.includes(label), '缺字段：' + label);
   }

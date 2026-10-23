@@ -6,8 +6,14 @@
 // 跑法：node --test tests/test_tools.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { apply } from '../dsh-plugin/lib/tools.js';
+
+// 真 1x1 PNG：mb_add 会把图片文件原样读成 data URL 发出去
+const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 const CONFIG = { url: 'http://127.0.0.1:9', home: 'C:/ws', python: 'python' };
 
@@ -104,6 +110,36 @@ test('mb_add 不传难度时不发 difficulty 字段（v0.37 修：以前塞 0 �
     await map.mb_add.execute({ question: '求极限' });
     const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/api/mistakes')).init.body);
     assert.equal(Object.prototype.hasOwnProperty.call(sent, 'difficulty'), false);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_add 只发图：本地图片读成 data URL 发出去，题干可以为空', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mb-img-'));
+  const file = join(dir, 'q.png');
+  writeFileSync(file, Buffer.from(PNG_1PX, 'base64'));
+  const stub = stubFetch({ '/api/mistakes': { id: 7, subject: '高数', next_review_at: '2026-11-01 08:00:00' } });
+  try {
+    const { map } = tools();
+    await map.mb_add.execute({ images: [{ path: file, field: 'answer' }] });
+    const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/api/mistakes')).init.body);
+    assert.equal(sent.question, '');
+    assert.equal(sent.images.length, 1);
+    assert.equal(sent.images[0].field, 'answer');
+    assert.match(sent.images[0].data, /^data:image\/png;base64,/);
+  } finally {
+    stub.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mb_add 题干和图片都没有：直接报错，不发请求', async () => {
+  const stub = stubFetch({});
+  try {
+    const { map } = tools();
+    await assert.rejects(() => map.mb_add.execute({}), /题干和图片至少给一个/);
+    assert.equal(stub.calls.filter((item) => item.url.includes('/api/mistakes')).length, 0);
   } finally {
     stub.restore();
   }

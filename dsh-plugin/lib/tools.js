@@ -8,6 +8,8 @@
  * 约定：description 只有一句话、不含换行——参数契约不进 system prompt，
  * 详细的字段说明写在参数的 description 里，由模型按需看 schema。
  */
+import { readFileSync, statSync } from 'node:fs';
+import { extname } from 'node:path';
 import { call, settings } from './api.js';
 
 export const name = 'mistake-book-tools';
@@ -43,6 +45,36 @@ function clampInt(value, fallback, min, max) {
   return Math.min(max, Math.max(min, Math.trunc(n)));
 }
 
+/** 能与服务端对上的图片类型。别的一律拒，避免把二进制当图片塞进库。 */
+const IMAGE_MIME = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+const MAX_IMAGE_FILES = 6;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** 本地图片路径 → 服务端要的 {data, field}。题干允许为空，所以这条路是「只发图」的唯一入口。 */
+function readImageFiles(list) {
+  if (!Array.isArray(list) || !list.length) return [];
+  const files = [];
+  for (const entry of list.slice(0, MAX_IMAGE_FILES)) {
+    const path = typeof entry === 'string' ? entry : String((entry && entry.path) || '').trim();
+    if (!path) continue;
+    const mime = IMAGE_MIME[extname(path).toLowerCase()];
+    if (!mime) throw new Error('图片类型不支持（png/jpg/webp/gif）: ' + path);
+    let size = 0;
+    try { size = statSync(path).size; } catch (_) { throw new Error('找不到图片: ' + path); }
+    if (size > MAX_IMAGE_BYTES) throw new Error('图片超过 8MB: ' + path);
+    const data = readFileSync(path).toString('base64');
+    const field = entry && typeof entry === 'object' && entry.field ? String(entry.field) : 'question';
+    files.push({ data: 'data:' + mime + ';base64,' + data, field });
+  }
+  return files;
+}
+
 const STATUS_LABEL = { new: '待复习', reviewing: '复习中', mastered: '已掌握' };
 
 function statusLabel(status) {
@@ -55,8 +87,10 @@ function brief(item) {
   // 0 条要显式说「无变式」，否则 agent 列到期题时看不出谁该补题。
   const variants = typeof item.variant_count === 'number' ? item.variant_count : null;
   const tail = variants === null ? '' : (variants ? ' · 变式 ' + variants : ' · 无变式');
+  // 纯图片题没有题干：别在到期清单里留一个空标题
+  const title = clip(item.question, 60) || (item.has_image ? '（图片题）' : '（空题）');
   return '#' + item.id + ' [' + (item.subject || '未分科') + '] '
-    + clip(item.question, 60) + '（' + statusLabel(item.status) + tail + '）';
+    + title + '（' + statusLabel(item.status) + tail + '）';
 }
 
 /** 拼查询串，跳过空值。 */
@@ -196,7 +230,7 @@ function getTool(config) {
       const item = await call(s, '/api/mistakes/' + id);
       const lines = [
         '#' + item.id + ' [' + (item.subject || '未分科') + '] ' + statusLabel(item.status),
-        '题目：' + oneLine(item.question),
+        '题目：' + (oneLine(item.question) || '（纯图片题，题型见下面的图片）'),
       ];
       if (oneLine(item.my_answer)) lines.push('我的答案：' + oneLine(item.my_answer));
       // v0.38：默认不泄题。以前 mb_get 永远把答案与解析吐出来，于是「让学生先答」
@@ -217,8 +251,12 @@ function getTool(config) {
         + ' · 来源 ' + (item.source || '无'));
       lines.push('复习：共 ' + (item.review_count || 0) + ' 次 · 阶段 ' + (item.stage || 0)
         + ' · 下次 ' + (item.next_review_at || '未排'));
+      // v0.52：纯图片题光说「N 张」没用——把本地路径写出来，模型才能用 read_image 真的看题。
       if (Array.isArray(item.images) && item.images.length) {
-        lines.push('图片：' + item.images.length + ' 张');
+        lines.push('图片：' + item.images.length + ' 张（本地文件，可用 read_image 打开）');
+        for (const img of item.images.slice(0, 6)) {
+          lines.push('  · ' + (img.field || 'question') + '：' + (img.path || img.file || ''));
+        }
       }
       // v0.37：把已有变式列出来。以前 agent 拿到一道题看不见它攒过哪些变式，
       // 只能从 mb_due 行的「变式 N」猜，容易重复出同一道。
@@ -263,7 +301,20 @@ function addTool(config) {
       type: 'object',
       additionalProperties: false,
       properties: {
-        question: { type: 'string', description: '题干，必填' },
+        question: { type: 'string', description: '题干（可选：只发图时留空）' },
+        images: {
+          type: 'array',
+          description: '题目截图的本机路径，最多 6 张；只有图没有题干也能录',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              path: { type: 'string', description: '本地图片路径（png/jpg/webp/gif）' },
+              field: { type: 'string', enum: ['question', 'wrong', 'answer', 'analysis'], description: '这张图属于哪一块，默认 question' },
+            },
+            required: ['path'],
+          },
+        },
         my_answer: { type: 'string', description: '我的错误答案' },
         answer: { type: 'string', description: '正确答案' },
         analysis: { type: 'string', description: '解析或解题步骤' },
@@ -276,11 +327,15 @@ function addTool(config) {
         difficulty: { type: 'integer', description: '难度 1-5' },
         paper_id: { type: 'integer', description: '归到哪份试卷，0 表示不归卷' },
       },
-      required: ['question'],
+      required: [],
     },
     output: out(),
     async execute(args) {
       const s = settings(config);
+      const images = readImageFiles(args.images);
+      if (!oneLine(args.question) && !images.length) {
+        throw new Error('题干和图片至少给一个');
+      }
       const body = {
         question: oneLine(args.question),
         my_answer: args.my_answer || '',
@@ -294,6 +349,7 @@ function addTool(config) {
         tags: args.tags || '',
         paper_id: clampInt(args.paper_id, 0, 0, 2147483647),
       };
+      if (images.length) body.images = images;
       // v0.37 修：difficulty 不传时以前塞 0，而服务端只收 1-5，导致「不填难度就录不进去」。
       // 不传就不发这个字段，让服务端用默认值 3。
       if (args.difficulty !== undefined && args.difficulty !== null && args.difficulty !== '') {
