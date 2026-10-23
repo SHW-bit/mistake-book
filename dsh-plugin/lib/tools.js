@@ -570,13 +570,411 @@ function eventsTool(config) {
   };
 }
 
+/* ── v0.41：把 AI 能做的事从「读 + 单题写」扩到「批量写 + 组卷 + 复盘 + 知识库整理」 ── */
+
+/** 编辑距离（带上限，超了提前返回；只用来判相似，不需要精确值）。 */
+function editDistance(a, b, limit) {
+  const m = a.length;
+  const n = b.length;
+  if (Math.abs(m - n) > limit) return limit;
+  let prev = new Array(n + 1);
+  let cur = new Array(n + 1);
+  for (let j = 0; j <= n; j += 1) prev[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    cur[0] = i;
+    let best = cur[0];
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > limit) return limit;
+    const swap = prev;
+    prev = cur;
+    cur = swap;
+  }
+  return prev[n];
+}
+
+/** 归一化：层级分隔符（空格 / > · ・）统一成 /，再小写，只用于比较，不写回库。 */
+function foldName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s*[\/>·・]\s*/g, '/')
+    .replace(/\s+/g, '/');
+}
+
+/** 两个名字有多像：0 = 不像，1 = 归一化后完全相同。 */
+function similarName(a, b) {
+  const fa = foldName(a);
+  const fb = foldName(b);
+  if (!fa || !fb) return 0;
+  // 归一化后完全相同但原文不同 = 最该合并的一类（空格/分隔符写法不一致），
+  // 不能因为「看起来一样」就跳过 —— 库里的 DISTINCT 保证原文不同，这里必然是两个值。
+  if (fa === fb) return 1;
+  if (fa.length < 2 || fb.length < 2) return 0;
+  // 父子节点不算重复：「函数」和「函数/极限」是层级关系，不是同一件事写了两遍。
+  // 少了这行，suggest 会把每个子节点都报成父节点的近重复（冒烟时确实如此）。
+  if (fa.indexOf(fb + '/') === 0 || fb.indexOf(fa + '/') === 0) return 0;
+  const longest = Math.max(fa.length, fb.length);
+  const ratio = 1 - editDistance(fa, fb, 12) / longest;
+  if (fa.indexOf(fb) >= 0 || fb.indexOf(fa) >= 0) return Math.max(ratio, 0.8);
+  return ratio >= 0.72 ? ratio : 0;
+}
+
+/** 疑似无效值：纯数字（111 / 2）或单字符。 */
+function junkName(value) {
+  const text = String(value || '').trim();
+  return /^\d{1,4}$/.test(text) || text.length < 2;
+}
+
+/** 从 meta 里取一类候选值，统一成 { name, count }。 */
+function facetsOf(meta, kind) {
+  const table = {
+    knowledge: meta && meta.knowledge,
+    subject: meta && meta.subject_facets,
+    tag: meta && meta.tag_facets,
+  };
+  const list = table[kind];
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list) {
+    if (typeof item === 'string') {
+      if (item.trim()) out.push({ name: item.trim(), count: 0 });
+      continue;
+    }
+    const name = item && (item.path || item.name);
+    if (!name) continue;
+    out.push({ name: String(name), count: typeof item.count === 'number' ? item.count : 0 });
+  }
+  return out;
+}
+
+/** 粗解析批量文本，只为预览：数一数几道、各道标题是什么。真正的校验在服务端。 */
+function previewBlocks(text) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const blocks = [];
+  let cur = [];
+  const flush = () => { blocks.push(cur); cur = []; };
+  for (const line of lines) {
+    if (line.trim() === '---') { flush(); continue; }
+    cur.push(line);
+  }
+  flush();
+  const out = [];
+  for (const block of blocks) {
+    const body = block.join('\n').trim();
+    if (!body) continue;
+    let title = '';
+    for (const line of block) {
+      const hit = line.match(/^\s*(题目|题干|question)\s*[:：]\s*(.+)$/i);
+      if (hit) { title = hit[2].trim(); break; }
+    }
+    if (!title) {
+      const first = block.find((line) => line.trim());
+      title = first ? first.trim() : '';
+    }
+    out.push(title);
+  }
+  return out;
+}
+
+function batchTool(config) {
+  return {
+    name: 'mb_batch',
+    description: '批量导入错题。默认只预览不写库（preview 默认 true）：先看要入几道、标题对不对，确认后传 preview:false 才真正入库。text 里每题用一行 --- 分隔，块内写 键: 值（题目/答案/解析/我的答案/错因分类/来源/知识点/标签/学科/难度）。也可以直接传 items 数组。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '多道题的纯文本，每题之间用单独一行 --- 分隔' },
+        items: { type: 'array', description: '结构化数组，每项字段同单题录入（question 必填）', items: { type: 'object' } },
+        preview: { type: 'boolean', description: 'true（默认）= 只解析回显、不写库；false = 真正入库' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const items = Array.isArray(args.items) ? args.items : [];
+      const text = typeof args.text === 'string' ? args.text : '';
+      if (!items.length && !text.trim()) throw new Error('text 和 items 至少要给一个');
+      if (args.preview !== false) {
+        const titles = items.length
+          ? items.map((item) => String((item && item.question) || '').trim())
+          : previewBlocks(text);
+        const lines = ['批量导入预览（还没写库）', '共 ' + titles.length + ' 道：'];
+        titles.slice(0, 10).forEach((title, index) => {
+          lines.push('  ' + (index + 1) + '. ' + (clip(title, 60) || '（没识别到题干）'));
+        });
+        if (titles.length > 10) lines.push('  …… 还有 ' + (titles.length - 10) + ' 道');
+        lines.push('确认无误后，用同样的内容再调一次，带 preview:false 才会真正入库。');
+        return { text: lines.join('\n') };
+      }
+      const body = items.length ? { items } : { text };
+      const data = await call(s, '/api/mistakes/batch', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const created = (data && data.created) || [];
+      const duplicates = (data && data.duplicates) || [];
+      const errors = (data && data.errors) || [];
+      const lines = ['批量导入完成：成功 ' + created.length + ' 道 · 重复跳过 ' + duplicates.length
+        + ' 道 · 失败 ' + errors.length + ' 道'];
+      if (created.length) {
+        lines.push('新入库：' + created.map((item) => '#' + item.id).join(' '));
+      }
+      if (duplicates.length) {
+        lines.push('判定重复（3 秒内同题干）：' + duplicates.map((item) => '#' + item.id).join(' '));
+      }
+      if (errors.length) {
+        lines.push('失败明细：');
+        errors.slice(0, 10).forEach((item) => {
+          lines.push('  第 ' + (item.index + 1) + ' 条：' + oneLine(item.error));
+        });
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
+function paperTool(config) {
+  return {
+    name: 'mb_paper',
+    description: '组一张错题重做卷，返回可打印的链接（浏览器打开后 Ctrl+P 就能存 PDF）。可指定题量、排序（weak 最弱优先 / random / recent / oldest）、模式（question 只出题 / answer 题目+答案 / split 题答分栏），也能按学科、知识点、错因、标签、状态筛选。',
+    parameters: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', description: '题量，1-100，默认 10' },
+        order: { type: 'string', description: 'weak（默认，最弱优先）/ random / recent / oldest' },
+        mode: { type: 'string', description: 'question（默认）/ answer / split' },
+        title: { type: 'string', description: '卷面标题，默认「错题重做卷」' },
+        subject: { type: 'string', description: '只出这个学科的题' },
+        knowledge: { type: 'string', description: '只出这个知识点的题' },
+        kdeep: { type: 'boolean', description: '知识点是否含子节点，默认 true' },
+        type: { type: 'string', description: '错因分类筛选' },
+        tag: { type: 'string', description: '标签筛选' },
+        status: { type: 'string', description: 'new / reviewing / mastered' },
+        due: { type: 'boolean', description: '只要今天到期的' },
+        images: { type: 'boolean', description: '是否带上题目图片，默认 true' },
+        analysis: { type: 'boolean', description: '是否带解析，默认 false' },
+        blank: { type: 'number', description: '留白高度（px），默认 56' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const params = {
+        count: clampInt(args.count, 10, 1, 100),
+        order: String(args.order || 'weak').trim(),
+        mode: String(args.mode || 'question').trim(),
+        title: typeof args.title === 'string' ? args.title.trim() : '',
+        subject: typeof args.subject === 'string' ? args.subject.trim() : '',
+        knowledge: typeof args.knowledge === 'string' ? args.knowledge.trim() : '',
+        kdeep: args.knowledge ? (args.kdeep === false ? 0 : 1) : '',
+        type: typeof args.type === 'string' ? args.type.trim() : '',
+        tag: typeof args.tag === 'string' ? args.tag.trim() : '',
+        status: typeof args.status === 'string' ? args.status.trim() : '',
+        due: args.due ? 1 : '',
+        images: args.images === false ? 0 : 1,
+        analysis: args.analysis ? 1 : 0,
+        blank: clampInt(args.blank, 56, 0, 400),
+      };
+      const data = await call(s, '/api/paper' + query(params));
+      const items = (data && data.items) || [];
+      const link = s.url + '/print' + query(params);
+      const lines = ['已组卷：' + (data && data.count || items.length) + ' 道（'
+        + (data && data.order_label || params.order) + ' · '
+        + (data && data.mode_label || params.mode) + ' · 标题「'
+        + (data && data.title || '错题重做卷') + '」）'];
+      if (data && data.available !== undefined) {
+        lines.push('题库可用 ' + data.available + ' 道，本次取了 ' + (data.count || items.length) + ' 道。');
+      }
+      lines.push('打印 / 存 PDF：' + link);
+      if (items.length) {
+        lines.push('卷面题目：');
+        items.slice(0, 10).forEach((item, index) => {
+          lines.push('  ' + (index + 1) + '. ' + (clip(oneLine(item.question), 60) || ''));
+        });
+        if (items.length > 10) lines.push('  …… 还有 ' + (items.length - 10) + ' 道');
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
+function reportTool(config) {
+  return {
+    name: 'mb_report',
+    description: '生成一份学习周报：这段时间新增多少、复习多少次、正确率、库存分布、今天该复习几道、最弱知识点、最常错的步骤、再战区情况。一次调用拉齐 stats/analytics/mastery/plan/arena 五个接口。',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: '统计窗口天数，1-90，默认 7' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const days = clampInt(args.days, 7, 1, 90);
+      const results = await Promise.all([
+        call(s, '/api/stats'),
+        call(s, '/api/analytics' + query({ days })),
+        call(s, '/api/mastery'),
+        call(s, '/api/plan' + query({ days: 7 })),
+        call(s, '/api/arena'),
+      ]);
+      const stats = results[0] || {};
+      const ana = results[1] || {};
+      const mas = results[2] || {};
+      const plan = results[3] || {};
+      const arenaData = results[4] || {};
+      const totals = ana.trend_totals || {};
+      const reviews = stats.reviews || {};
+      const accuracy = typeof reviews.accuracy === 'number'
+        ? Math.round(reviews.accuracy * 100) + '%' : '—';
+      const lines = ['学习周报 · 近 ' + days + ' 天'];
+      lines.push('这段时间：新增 ' + (totals.created || 0) + ' 道 · 复习 '
+        + (totals.reviewed || 0) + ' 次 · 正确率 ' + accuracy);
+      lines.push('题库：共 ' + (stats.total || 0) + ' 道（已掌握 ' + (stats.mastered || 0)
+        + ' / 复习中 ' + (stats.reviewing || 0) + ' / 到期 ' + (stats.due || 0)
+        + ' / 斩题 ' + (stats.suspended || 0) + '）');
+      lines.push('今天该复习 ' + (plan.today_count || 0) + ' 道（逾期 '
+        + (plan.overdue || 0) + ' 道）· 未来 7 天共 ' + (plan.total || 0) + ' 道');
+      if (mas.points_total) {
+        lines.push('掌握门禁：' + (mas.passed_total || 0) + ' / ' + mas.points_total
+          + ' 个知识点通过');
+      }
+      const weakest = (ana.retention && ana.retention.weakest) || [];
+      if (weakest.length) {
+        lines.push('最该补的知识点（按留存预测，越低越该练）：');
+        weakest.slice(0, 5).forEach((item, index) => {
+          const name = item.knowledge || item.subject || ('#' + item.id);
+          lines.push('  ' + (index + 1) + '. ' + name + ' · R≈' + item.retention
+            + ' · 稳定度 ' + item.stability + ' 天');
+        });
+      }
+      const steps = (ana.by_step || []).slice(0, 5);
+      if (steps.length) {
+        lines.push('最常卡住的步骤：' + steps.map((item) => item.name + ' ' + item.count + ' 次').join(' · '));
+      }
+      const counts = arenaData.counts || {};
+      if (counts.tracked) {
+        lines.push('再战区：在区 ' + (counts.zone || 0) + ' 道 · 已清 ' + (counts.cleared || 0) + ' 道');
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
+function suggestTool(config) {
+  return {
+    name: 'mb_suggest',
+    description: '查知识点 / 学科 / 标签里的近重复与无效值，只给建议、不改库。典型脏数据：111、2、单字、全半角或空格写法不一致（函数 单调性 vs 函数/单调性）。拿到建议后用 mb_merge 执行合并。',
+    parameters: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag' },
+        limit: { type: 'number', description: '最多给多少组建议，默认 20' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const kind = String(args.kind || 'knowledge').trim().toLowerCase();
+      const limit = clampInt(args.limit, 20, 1, 100);
+      const meta = await call(s, '/api/meta');
+      const list = facetsOf(meta, kind);
+      const label = { knowledge: '知识点', subject: '学科', tag: '标签' }[kind] || kind;
+      if (!list.length) return { text: '库里还没有任何' + label + '。' };
+      const junk = list.filter((item) => junkName(item.name));
+      const pairs = [];
+      for (let i = 0; i < list.length; i += 1) {
+        for (let j = i + 1; j < list.length; j += 1) {
+          const score = similarName(list[i].name, list[j].name);
+          if (score > 0) pairs.push({ a: list[i], b: list[j], score });
+        }
+      }
+      pairs.sort((x, y) => y.score - x.score);
+      const lines = ['「' + label + '」体检（共 ' + list.length + ' 个值，只建议不改库）'];
+      if (junk.length) {
+        lines.push('疑似无效值（纯数字或单字）：');
+        junk.slice(0, 10).forEach((item) => {
+          lines.push('  「' + item.name + '」' + item.count + ' 道 → 建议清空：mb_merge kind='
+            + kind + ' sources=["' + item.name + '"] target=""');
+        });
+      }
+      const shown = pairs.slice(0, limit);
+      if (shown.length) {
+        lines.push('疑似重复（归一化后很像）：');
+        shown.forEach((pair) => {
+          const keep = pair.a.count >= pair.b.count ? pair.a : pair.b;
+          const drop = keep === pair.a ? pair.b : pair.a;
+          lines.push('  「' + drop.name + '」' + drop.count + ' 道 ≈ 「' + keep.name + '」'
+            + keep.count + ' 道（相似度 ' + pair.score.toFixed(2) + '）');
+          lines.push('     → 建议并到「' + keep.name + '」：mb_merge kind=' + kind
+            + ' sources=["' + drop.name + '"] target="' + keep.name + '"');
+        });
+      }
+      if (!junk.length && !shown.length) lines.push('没有发现明显的重复或无效值。');
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
+function mergeTool(config) {
+  return {
+    name: 'mb_merge',
+    description: '把若干个知识点 / 学科 / 标签并成一个规范名（就是「合并」）。kind=knowledge 走知识点合并（会顺带登记别名，以后写错写法自动归到规范名）；kind=subject 或 tag 走扁平值合并。target 留空 = 删除这些值（知识点清空、学科变未分类、标签消失）。不可逆，执行前先 mb_suggest 看建议。',
+    parameters: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag' },
+        sources: { type: 'array', description: '要并掉的旧名数组，例如 ["111","函数 单调性"]', items: { type: 'string' } },
+        target: { type: 'string', description: '合并到的规范名；留空表示删除这些值' },
+      },
+      required: ['sources'],
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const kind = String(args.kind || 'knowledge').trim().toLowerCase();
+      const sources = Array.isArray(args.sources)
+        ? args.sources.map((item) => String(item || '').trim()).filter(Boolean) : [];
+      const target = typeof args.target === 'string' ? args.target.trim() : '';
+      if (!sources.length) throw new Error('sources 必须是非空的名称数组');
+      if (kind !== 'knowledge' && kind !== 'subject' && kind !== 'tag') {
+        throw new Error('kind 只能是 knowledge / subject / tag');
+      }
+      const path = kind === 'knowledge' ? '/api/knowledge/merge' : '/api/meta/merge';
+      const body = kind === 'knowledge'
+        ? { sources, target }
+        : { kind, sources, target };
+      const data = await call(s, path, { method: 'POST', body: JSON.stringify(body) });
+      // 服务端 moved 是「改了多少道」的数字，题号在 ids 里 —— 别把数字当数组用。
+      const movedCount = data && typeof data.moved === 'number' ? data.moved : 0;
+      const movedIds = data && Array.isArray(data.ids) ? data.ids : [];
+      const lines = [];
+      if (target) {
+        lines.push('已把 ' + sources.length + ' 个值并到「' + target + '」');
+      } else {
+        lines.push('已清空 ' + sources.length + ' 个值：' + sources.join('、'));
+      }
+      lines.push('改动题目 ' + movedCount + ' 道'
+        + (data && data.aliases_added ? ' · 新登记别名 ' + data.aliases_added + ' 个' : ''));
+      if (movedIds.length) lines.push('题号：' + movedIds.slice(0, 20).map((id) => '#' + id).join(' ')
+        + (movedIds.length > 20 ? ' ……' : ''));
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
 /**
- * 把 8 个工具注册到 agent 的工具面。
+ * 把 13 个工具注册到 agent 的工具面。
  * @param {any} ctx cordis 上下文，用到 tools 一个成员。
  * @param {any} config 插件行 config 段（url / home / python）。
  */
 export function apply(ctx, config) {
   const builders = [dueTool, searchTool, getTool, addTool, reviewTool, statsTool,
-    weakStepsTool, eventsTool];
+    weakStepsTool, eventsTool, batchTool, paperTool, reportTool, suggestTool, mergeTool];
   for (const build of builders) ctx.tools.register(build(config));
 }

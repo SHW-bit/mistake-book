@@ -41,12 +41,13 @@ function tools() {
   return { list: registered, map };
 }
 
-test('注册 8 个工具，名字不重复', () => {
+test('注册 13 个工具，名字不重复', () => {
   const { list } = tools();
   const names = list.map((item) => item.name).sort();
-  assert.equal(names.length, 8);
-  assert.deepEqual(names, ['mb_add', 'mb_due', 'mb_events', 'mb_get', 'mb_review',
-    'mb_search', 'mb_stats', 'mb_weak_steps']);
+  assert.equal(names.length, 13);
+  assert.deepEqual(names, ['mb_add', 'mb_batch', 'mb_due', 'mb_events', 'mb_get',
+    'mb_merge', 'mb_paper', 'mb_report', 'mb_review', 'mb_search', 'mb_stats',
+    'mb_suggest', 'mb_weak_steps']);
 });
 
 test('mb_review 带 step：请求体里有 step，回执里带上断点', async () => {
@@ -366,6 +367,181 @@ test('mb_get：老服务没有变式接口时不炸，只给一句暂无', async
     const value = await map.mb_get.execute({ id: 12 });
     assert.match(value.text, /题目：求极限/);
     assert.match(value.text, /已有变式：暂无/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_batch 默认只预览，一个请求都不发', async () => {
+  const stub = stubFetch({});
+  try {
+    const { map } = tools();
+    const value = await map.mb_batch.execute({
+      text: '题目: 求极限 A\n答案: 1\n---\n题目: 求极限 B\n答案: 2',
+    });
+    assert.match(value.text, /预览/);
+    assert.match(value.text, /共 2 道/);
+    assert.match(value.text, /求极限 A/);
+    assert.match(value.text, /preview:false/);
+    assert.equal(stub.calls.filter((item) => item.url.includes('/batch')).length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_batch preview:false 才 POST，回执分开报成功/重复/失败', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/batch': {
+      created: [{ index: 0, id: 7 }, { index: 1, id: 8 }],
+      duplicates: [{ index: 2, id: 9 }],
+      errors: [{ index: 3, error: '题目不能为空' }],
+      created_count: 2, duplicate_count: 1, error_count: 1,
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_batch.execute({ text: '题目: 甲\n---\n题目: 乙', preview: false });
+    const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/batch')).init.body);
+    assert.equal(sent.text, '题目: 甲\n---\n题目: 乙');
+    assert.match(value.text, /成功 2 道 · 重复跳过 1 道 · 失败 1 道/);
+    assert.match(value.text, /新入库：#7 #8/);
+    assert.match(value.text, /第 4 条：题目不能为空/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_paper 透传筛选参数，并给出 /print 链接', async () => {
+  const stub = stubFetch({
+    '/api/paper': {
+      title: '错题重做卷', mode: 'question', mode_label: '题目卷',
+      order: 'weak', order_label: '最弱优先', count: 2, available: 9,
+      items: [{ id: 1, question: '求极限 1' }, { id: 2, question: '求极限 2' }],
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_paper.execute({ count: 2, knowledge: '函数', subject: '高数' });
+    const url = stub.calls.find((item) => item.url.includes('/api/paper')).url;
+    assert.match(url, /count=2/);
+    assert.match(url, /knowledge=%E5%87%BD%E6%95%B0/);
+    assert.match(url, /kdeep=1/);
+    assert.match(url, /subject=%E9%AB%98%E6%95%B0/);
+    assert.match(value.text, /已组卷：2 道/);
+    assert.match(value.text, /打印 \/ 存 PDF：http:\/\/127\.0\.0\.1:9\/print\?/);
+    assert.match(value.text, /1\. 求极限 1/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_report 一次拉齐五个接口并汇总', async () => {
+  const stub = stubFetch({
+    '/api/stats': { total: 58, mastered: 9, reviewing: 31, due: 4, suspended: 3,
+      reviews: { total: 40, graded: 34, correct: 26, accuracy: 0.765 } },
+    '/api/analytics': { trend_totals: { created: 12, reviewed: 34 },
+      retention: { weakest: [{ id: 5, knowledge: '函数/单调性', retention: 0.62, stability: 4.1 }] },
+      by_step: [{ name: '计算', count: 8 }, { name: '审题', count: 5 }] },
+    '/api/mastery': { points_total: 23, passed_total: 9 },
+    '/api/plan': { today_count: 4, overdue: 2, total: 18 },
+    '/api/arena': { counts: { zone: 2, cleared: 5, suspended: 3, tracked: 7 } },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_report.execute({ days: 7 });
+    assert.equal(stub.calls.filter((item) => item.url.includes('/api/stats')).length, 1);
+    assert.match(value.text, /近 7 天/);
+    assert.match(value.text, /新增 12 道 · 复习 34 次 · 正确率 77%/);
+    assert.match(value.text, /共 58 道/);
+    assert.match(value.text, /今天该复习 4 道（逾期 2 道）/);
+    assert.match(value.text, /9 \/ 23 个知识点通过/);
+    assert.match(value.text, /函数\/单调性 · R≈0\.62 · 稳定度 4\.1 天/);
+    assert.match(value.text, /计算 8 次 · 审题 5 次/);
+    assert.match(value.text, /在区 2 道 · 已清 5 道/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_suggest 揪出无效值与近重复，且不改库', async () => {
+  const stub = stubFetch({
+    '/api/meta': {
+      knowledge: [
+        { path: '函数 单调性', count: 5, depth: 0, parent: '' },
+        { path: '函数/单调性', count: 3, depth: 0, parent: '' },
+        { path: '111', count: 1, depth: 0, parent: '' },
+      ],
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_suggest.execute({ kind: 'knowledge' });
+    assert.match(value.text, /「111」1 道 → 建议清空/);
+    assert.match(value.text, /相似度/);
+    assert.match(value.text, /mb_merge kind=knowledge/);
+    // 建议工具只读：不该出现任何 POST
+    assert.equal(stub.calls.filter((item) => item.init && item.init.method === 'POST').length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_merge：知识点走 /api/knowledge/merge，学科走 /api/meta/merge', async () => {
+  const stub = stubFetch({
+    // 服务端 moved 是数字、题号在 ids 里（v0.41 冒烟时发现把数字当数组用会打印 undefined）
+    '/api/knowledge/merge': { target: '函数/单调性', sources: ['函数 单调性'], merged: 1,
+      moved: 3, ids: [1, 2, 3], aliases_added: 1, cleared: false },
+    '/api/meta/merge': { target: '高数', sources: ['高等数学'], merged: 1,
+      moved: 2, ids: [4, 5], aliases_added: 0, cleared: false },
+  });
+  try {
+    const { map } = tools();
+    const kp = await map.mb_merge.execute({ sources: ['函数 单调性'], target: '函数/单调性' });
+    const kpBody = JSON.parse(stub.calls.find((item) => item.url.includes('/knowledge/merge')).init.body);
+    assert.deepEqual(kpBody, { sources: ['函数 单调性'], target: '函数/单调性' });
+    assert.match(kp.text, /已把 1 个值并到「函数\/单调性」/);
+    assert.match(kp.text, /改动题目 3 道 · 新登记别名 1 个/);
+
+    const sub = await map.mb_merge.execute({ kind: 'subject', sources: ['高等数学'], target: '高数' });
+    const subBody = JSON.parse(stub.calls.find((item) => item.url.includes('/api/meta/merge')).init.body);
+    assert.deepEqual(subBody, { kind: 'subject', sources: ['高等数学'], target: '高数' });
+    assert.match(sub.text, /改动题目 2 道/);
+    assert.match(kp.text, /题号：#1 #2 #3/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_merge：sources 为空当场拒绝，不发请求', async () => {
+  const stub = stubFetch({});
+  try {
+    const { map } = tools();
+    await assert.rejects(() => map.mb_merge.execute({ sources: [] }), /sources 必须是非空的名称数组/);
+    assert.equal(stub.calls.filter((item) => item.url.includes('/merge')).length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_suggest：父子节点不算重复，只有写法不一致才算', async () => {
+  const stub = stubFetch({
+    '/api/meta': {
+      knowledge: [
+        { path: '函数', count: 6, depth: 0, parent: '' },
+        { path: '函数/极限', count: 4, depth: 1, parent: '函数' },
+        { path: '函数/单调性', count: 2, depth: 1, parent: '函数' },
+        { path: '函数 极限', count: 1, depth: 0, parent: '' },
+      ],
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_suggest.execute({ kind: 'knowledge' });
+    // 子节点与父节点是层级关系，不该被建议合并
+    assert.doesNotMatch(value.text, /「函数\/极限」4 道 ≈ 「函数」/);
+    assert.doesNotMatch(value.text, /「函数\/单调性」2 道 ≈ 「函数」/);
+    // 「函数 极限」与「函数/极限」只是分隔符写法不同，必须报出来
+    assert.match(value.text, /「函数 极限」1 道 ≈ 「函数\/极限」4 道/);
   } finally {
     stub.restore();
   }

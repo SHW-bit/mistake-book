@@ -337,11 +337,17 @@ python mb.py export --out backup.json   # 导出全量 JSON（不含图片文件
 python mb.py backup                     # 数据库快照 → data/backups/（保留 14 份）
 python mb.py restore --from data/backups/mistakes-20261022-203203.db   # 整库恢复（覆盖前自动留安全快照）
 python mb.py --read-only list           # 只读模式，拒绝写操作
+# —— v0.41 新增：只有面板工具，没有 CLI 子命令 ——
+# mb_batch(text="题目:...\n---\n题目:...", preview=true)   # 先预览，确认后 preview=false 才入库
+# mb_paper(count=10, order="weak", mode="question")        # 组卷，回执直接给 /print 链接
+# mb_report(days=7)                                        # 学习周报（新增/复习/正确率/门禁/计划）
+# mb_suggest(kind="knowledge")                             # 查脏值与近重复（只读，不改库）
+# mb_merge(kind="knowledge", sources=["111"], target="")   # 执行合并；target 留空 = 删除该值
 ```
 
 默认输出 JSON（agent 直接解析），加 `--text` 输出人读格式。
 
-**最小权限**：分析类任务加 `--read-only`，`add` / `review` / `import` / `suspend` / `restore` / `merge` / `meta-merge` 会被拒绝并返回退出码 2；`alias add` / `alias rm` 同样被拒（`alias list` 放行）。`restore` 会**整库覆盖**，比普通写操作更危险——除非用户明确说「用这个备份恢复」，否则不要调用。`remind` / `ktree` / `variant gaps` / `backup` 不写库，随时可用（注意 `remind --email` 会真的发信，`backup` 会在 `data/backups/` 落文件）。组卷打印没有 CLI 子命令，只能在网页端点「组卷打印」（生成的是 HTML 页面，CLI 拿不到）。`mb.py` 本来就没有 `delete` 子命令——删除只留在网页端，这是刻意的：agent 不该有删除权。
+**最小权限**：分析类任务加 `--read-only`，`add` / `review` / `import` / `suspend` / `restore` / `merge` / `meta-merge` 会被拒绝并返回退出码 2；`alias add` / `alias rm` 同样被拒（`alias list` 放行）。`restore` 会**整库覆盖**，比普通写操作更危险——除非用户明确说「用这个备份恢复」，否则不要调用。`remind` / `ktree` / `variant gaps` / `backup` 不写库，随时可用（注意 `remind --email` 会真的发信，`backup` 会在 `data/backups/` 落文件）。组卷打印没有 CLI 子命令（生成的是 HTML 页面，CLI 拿不到），要么在网页端点「组卷打印」，要么在面板里调 `mb_paper`（v0.41，回执直接给 `/print` 链接）。`mb.py` 本来就没有 `delete` 子命令——删除只留在网页端，这是刻意的：agent 不该有删除权。
 
 **图片（v0.15）**：题目图片存在 `data/images/`（按内容哈希命名），库里只有文件名。`import` 只接受文本，图片要在网页端传（选文件或截图 Ctrl+V）。`export --out` 的 JSON 只带 `image_url` 不带图片字节——要连图片一起备份，用 `mb.py backup`（会把 `images/` 一并镜像），恢复时自动补回。
 
@@ -360,4 +366,4 @@ python mb.py --read-only list           # 只读模式，拒绝写操作
 - **分析**：录入/复习趋势、记忆保持度分布、最快会忘的题、错因与学科分布、最薄弱知识点。
 - **回收站**：删除的题连同复习历史都进这里，可逐条「恢复」或「彻底删除」，也能一键清空；只保留最近 200 条。删错了先来这里找，别急着重录。
 
-**组卷打印**：错题页工具栏「组卷打印」按当前筛选条件抽题，三种版式（只题目 / 题目+答案 / 答案分页），打开 `/print` 后用浏览器 Ctrl+P 存 PDF。用户说「打一份错题卷」时，先帮他在网页里筛好条件（学科/知识点/错因/待复习），再让他点这个按钮——不要试图用 CLI 生成卷子。
+**组卷打印**：错题页工具栏「组卷打印」按当前筛选条件抽题，三种版式（只题目 / 题目+答案 / 答案分页），打开 `/print` 后用浏览器 Ctrl+P 存 PDF。用户说「打一份错题卷」时，先帮他在网页里筛好条件（学科/知识点/错因/待复习），再让他点这个按钮——不要试图用 CLI 生成卷子；面板里可以让 agent 调 `mb_paper`，它会直接返回 `/print` 链接。

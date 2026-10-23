@@ -1,12 +1,12 @@
 # dsh-mistake-book
 
-错题本的 DSH 插件。它把「本地错题本」接进 DeepSeek Harness：8 个模型工具 + 2 条预设 + 1 个侧栏面板。
+错题本的 DSH 插件。它把「本地错题本」接进 DeepSeek Harness：13 个模型工具 + 2 条预设 + 1 个侧栏面板。
 
 ## 它给你什么
 
 | 东西 | 内容 |
 | --- | --- |
-| 工具（8 个） | `mb_due` 取到期 / `mb_search` 检索 / `mb_get` 读题（默认不给答案） / `mb_add` 录入 / `mb_review` 判分回写 FSRS / `mb_stats` 统计 / `mb_events` 断点 / `mb_weak_steps` 错步 |
+| 工具（13 个） | `mb_due` 取到期 / `mb_search` 检索 / `mb_get` 读题（默认不给答案） / `mb_add` 录入 / `mb_review` 判分回写 FSRS / `mb_stats` 统计 / `mb_events` 断点 / `mb_weak_steps` 错步 / `mb_batch` 批量导入 / `mb_paper` 组卷 / `mb_report` 周报 / `mb_suggest` 查脏值 / `mb_merge` 合并 |
 | 预设（2 条） | 「错题复习」走复习闭环；「错题答疑」就着一道题就地答疑 |
 | 面板 | 侧栏「错题本」，六页签：列表 / 学习 / 计划 / 分析 / 打印 / 设置 |
 
@@ -37,7 +37,7 @@ node install.mjs --uninstall
 
 ```
 lib/plugin.js    根行：建复习会话的路由
-lib/tools.js     8 个 mb_* 工具
+lib/tools.js     13 个 mb_* 工具
 lib/client.js    侧栏面板（web 客户端）
 lib/api.js       访问错题本 HTTP 服务的薄封装
 lib/session.js   复习会话的首条消息

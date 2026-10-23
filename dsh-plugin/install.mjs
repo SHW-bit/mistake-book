@@ -160,7 +160,7 @@ console.log("");
 console.log("**重启 DSH 才生效。**");
 if (!uninstall) {
   console.log("");
-  console.log("重启后：侧栏出现「错题本」面板，工具列表多出 8 个 mb_* 工具，预设里多出「错题复习 / 错题答疑」。");
+  console.log("重启后：侧栏出现「错题本」面板，工具列表多出 13 个 mb_* 工具，预设里多出「错题复习 / 错题答疑」。");
   console.log("注意：面板和工具都连 http://127.0.0.1:8000，先把错题本服务跑起来：");
   console.log("  python app.py --port 8000");
 }

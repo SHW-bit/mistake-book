@@ -2,7 +2,7 @@
   "name": "dsh-mistake-book",
   "version": "0.1.0",
   "type": "module",
-  "description": "错题本 DSH 插件：8 个模型工具（复习 / 检索 / 录入 / 判分 / 统计 / 断点 / 事件）+ 两条预设 + 侧栏面板（六页签）",
+  "description": "错题本 DSH 插件：13 个模型工具（复习 / 检索 / 录入 / 判分 / 统计 / 断点 / 事件 / 批量导入 / 组卷 / 周报 / 知识库整理）+ 两条预设 + 侧栏面板（六页签）",
   "icon": "./icon.png",
   "exports": {
     ".": "./lib/plugin.js",
