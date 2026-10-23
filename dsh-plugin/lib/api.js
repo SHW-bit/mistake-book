@@ -9,7 +9,25 @@
  *      用户先手动开一个终端。拉起失败不抛，让真正的请求去报错。
  */
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/**
+ * 安装形态下的仓库位置：install.mjs 会在插件包根写一个 home.txt（内容是仓库绝对路径）。
+ * 为什么需要它：以真副本装进 profile/node_modules/dsh-mistake-book 之后，
+ * lib/api.js 往上两级是**插件包自己**而不是仓库根，自动拉起会找不到 app.py。
+ */
+function installedHome() {
+  try {
+    const pkgRoot = fileURLToPath(new URL('..', import.meta.url));
+    const file = path.join(pkgRoot, 'home.txt');
+    const text = readFileSync(file, 'utf8').trim();
+    return text || '';
+  } catch {
+    return '';
+  }
+}
 
 /**
  * 错题本仓库的默认位置：优先取环境变量 MISTAKE_BOOK_HOME，
@@ -17,6 +35,7 @@ import { fileURLToPath } from 'node:url';
  * 这样 clone 到任何目录都不用改代码。插件行仍可用 config.home 覆盖。
  */
 export const DEFAULT_HOME = process.env.MISTAKE_BOOK_HOME
+  || installedHome()
   || fileURLToPath(new URL('../../', import.meta.url)).replace(/[\\/]+$/, '');
 /** 默认服务地址；只绑本机回环，与 app.py 的默认 --host 一致。 */
 export const DEFAULT_URL = 'http://127.0.0.1:8000';

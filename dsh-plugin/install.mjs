@@ -145,7 +145,12 @@ if (uninstall) {
       else throw e;
     }
   }
+  // 记下仓库绝对路径：安装成真副本后，插件包里往上两级不再是仓库根，
+  // lib/api.js 靠这个文件找 app.py（自动拉起与错误提示都要用）。
+  const repoRoot = path.resolve(HERE, "..");
+  fs.writeFileSync(path.join(dest, "home.txt"), repoRoot + "\n", "utf8");
   console.log("已放入真副本：" + dest);
+  console.log("仓库位置：" + repoRoot);
   if (locked.length > 0) {
     console.log("");
     console.log("⚠ 有 " + locked.length + " 个文件被占用没拷上：" + locked.join("、"));
