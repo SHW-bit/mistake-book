@@ -70,11 +70,19 @@ test('标题判据：只认自己建的那种，别把普通会话认进来', ()
 });
 
 test('首条消息：空字段整行省略，不写「我的答案：」后跟空白', () => {
-  const text = kickoffText({ id: 1, question: 'q', answer: 'a' });
+  const text = kickoffText({ id: 1, question: 'q', answer: 'a', analysis: '因为 6x7=42' });
   assert.match(text, /题目：q/);
-  assert.match(text, /正确答案：a/);
   assert.doesNotMatch(text, /我的答案/);
   assert.match(text, /mb_review/);
+});
+
+test('首条消息不泄题：答案与解析都不注入，只留一句「答完再取」', () => {
+  const text = kickoffText({ id: 1, question: 'q', answer: '机密答案', analysis: '机密解析' });
+  assert.doesNotMatch(text, /机密答案/);
+  assert.doesNotMatch(text, /机密解析/);
+  assert.doesNotMatch(text, /正确答案：/);
+  assert.doesNotMatch(text, /解析：/);
+  assert.match(text, /mb_get/);
 });
 
 test('非法 id 直接拒，不建会话', async () => {

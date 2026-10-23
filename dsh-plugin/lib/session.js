@@ -68,8 +68,9 @@ export function kickoffText(item) {
   };
   push('题目', item && item.question);
   push('我的答案', item && item.my_answer);
-  push('正确答案', item && item.answer);
-  push('解析', item && item.analysis);
+  // v0.37：正确答案与解析不再塞进首条消息。以前这里把答案直接摆在模型眼前，
+  // 和「先出题、学生答完再对答案」的规则自相矛盾——模型很难忍住不说。
+  // 需要时由模型调 mb_get 现取，那时学生已经答过了。
   const type = oneLine(item && item.mistake_type, 40);
   const reason = oneLine(item && item.error_reason, 400);
   if (type !== '' || reason !== '') {
@@ -80,6 +81,7 @@ export function kickoffText(item) {
   if (item && item.review_count) lines.push('已复习：' + item.review_count + ' 次');
   lines.push('');
   lines.push('按复习流程来：先让我讲我的思路，再出变式题，最后用 mb_review 回写评分。');
+  lines.push('答案和解析我没贴在这里：等我答完，你用 mb_get 取，现在先别告诉我。');
   return lines.join('\n');
 }
 

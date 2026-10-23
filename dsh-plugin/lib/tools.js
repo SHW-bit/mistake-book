@@ -73,6 +73,14 @@ function query(params) {
 const MISTAKE_TYPES = ['概念不清', '计算失误', '审题错误', '方法不会', '粗心', '其他'];
 // 与 app.py 的 REVIEW_STEPS 保持一致；用枚举，聚合才有意义
 const REVIEW_STEPS = ['审题', '建模', '计算', '检验', '表达', '记忆'];
+// 与 app.py 的 SORT_OPTIONS 同源。白名单：拼错的值不往后端发，让它走默认档。
+const SORT_KEYS = ['created', 'due', 'stability', 'errors'];
+
+/** 排序参数校验，不认识就返回空串（= 不传，用后端默认）。 */
+function sortKey(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return SORT_KEYS.indexOf(text) >= 0 ? text : '';
+}
 
 /** 今天/逾期该复习什么。 */
 function dueTool(config) {
@@ -85,6 +93,7 @@ function dueTool(config) {
       properties: {
         days: { type: 'integer', description: '往后看几天，默认 7' },
         limit: { type: 'integer', description: '最多列几道，默认 8' },
+        sort: { type: 'string', enum: SORT_KEYS, description: '排序：created 最新录入 / due 最快到期 / stability 最不稳定 / errors 错得最多' },
       },
     },
     output: out(),
@@ -92,8 +101,9 @@ function dueTool(config) {
       const s = settings(config);
       const days = clampInt(args.days, 7, 1, 60);
       const limit = clampInt(args.limit, 8, 1, 50);
+      const sort = sortKey(args.sort);
       const plan = await call(s, '/api/plan' + query({ days }));
-      const list = await call(s, '/api/mistakes' + query({ due: 1, page_size: limit }));
+      const list = await call(s, '/api/mistakes' + query({ due: 1, page_size: limit, sort }));
       const rows = list && Array.isArray(list.items) ? list.items : [];
       const head = '今天 ' + (plan.today_count || 0) + ' 道 · 逾期 ' + (plan.overdue || 0)
         + ' 道 · 未来 ' + days + ' 天共 ' + (plan.total || 0) + ' 道';
@@ -116,12 +126,15 @@ function searchTool(config) {
       properties: {
         q: { type: 'string', description: '关键词，匹配题干/答案/解析/知识点' },
         subject: { type: 'string', description: '学科，如 高数' },
-        knowledge: { type: 'string', description: '知识点，如 极限' },
+        knowledge: { type: 'string', description: '知识点，如 函数 或 函数/单调性' },
+        kdeep: { type: 'boolean', description: '知识点按子树匹配，默认 true（传 函数 也能搜到 函数/单调性）' },
+        nokp: { type: 'boolean', description: '只看没填知识点的题（与 knowledge 二选一）' },
         tag: { type: 'string', description: '标签，精确匹配一个' },
         status: { type: 'string', enum: ['new', 'reviewing', 'mastered'], description: '状态' },
         mistake_type: { type: 'string', enum: MISTAKE_TYPES, description: '错因分类' },
         paper_id: { type: 'integer', description: '试卷 id，0 表示未归卷' },
         due: { type: 'boolean', description: '只看已到期的' },
+        sort: { type: 'string', enum: SORT_KEYS, description: '排序：created / due / stability / errors' },
         limit: { type: 'integer', description: '每页条数，默认 10' },
         offset: { type: 'integer', description: '跳过多少条，默认 0' },
       },
@@ -139,7 +152,10 @@ function searchTool(config) {
         status: args.status,
         type: args.mistake_type,
         paper_id: args.paper_id,
+        kdeep: args.kdeep === false ? 0 : (args.knowledge ? 1 : ''),
+        nokp: args.nokp ? 1 : '',
         due: args.due ? 1 : '',
+        sort: sortKey(args.sort),
         page_size: limit,
         page: Math.floor(offset / limit) + 1,
       }));
@@ -194,6 +210,26 @@ function getTool(config) {
         + ' · 下次 ' + (item.next_review_at || '未排'));
       if (Array.isArray(item.images) && item.images.length) {
         lines.push('图片：' + item.images.length + ' 张');
+      }
+      // v0.37：把已有变式列出来。以前 agent 拿到一道题看不见它攒过哪些变式，
+      // 只能从 mb_due 行的「变式 N」猜，容易重复出同一道。
+      // 老服务没有这个接口就跳过，不因为附属信息打断主流程。
+      let variantRows = [];
+      try {
+        const data = await call(s, '/api/mistakes/' + id + '/variants');
+        variantRows = data && Array.isArray(data.items) ? data.items : [];
+      } catch {
+        variantRows = [];
+      }
+      if (variantRows.length) {
+        lines.push('', '已有变式（' + variantRows.length + ' 条）：');
+        for (const row of variantRows.slice(0, 10)) {
+          lines.push('  #' + row.id + ' ' + oneLine(row.question, 80)
+            + ' · 练过 ' + (row.times_used || 0) + ' 次');
+        }
+        if (variantRows.length > 10) lines.push('  ……还有 ' + (variantRows.length - 10) + ' 条');
+      } else if (args.with_reviews !== false) {
+        lines.push('已有变式：暂无（可以现场出一道同知识点的新题，用 mb_review 的 variant_question 存下来）');
       }
       if (args.with_reviews !== false) {
         const history = await call(s, '/api/mistakes/' + id + '/reviews');

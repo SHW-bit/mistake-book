@@ -251,3 +251,79 @@ test('mb_events：空事件流给一句说明', async () => {
     stub.restore();
   }
 });
+
+test('mb_due 透传 sort；非法值不往后端发', async () => {
+  const stub = stubFetch({
+    '/api/plan': { today_count: 0, overdue: 0, total: 0 },
+    '/api/mistakes': { items: [] },
+  });
+  try {
+    const { map } = tools();
+    await map.mb_due.execute({ sort: 'errors' });
+    const url = stub.calls.find((item) => item.url.includes('/api/mistakes')).url;
+    assert.match(url, /sort=errors/);
+    stub.calls.length = 0;
+    await map.mb_due.execute({ sort: '瞎写' });
+    const plain = stub.calls.find((item) => item.url.includes('/api/mistakes')).url;
+    assert.doesNotMatch(plain, /sort=/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_search：知识点默认含子树，nokp 查未归类，sort 透传', async () => {
+  const stub = stubFetch({ '/api/mistakes': { total: 0, items: [] } });
+  try {
+    const { map } = tools();
+    await map.mb_search.execute({ knowledge: '函数' });
+    const deep = stub.calls.find((item) => item.url.includes('/api/mistakes')).url;
+    assert.match(deep, /knowledge=%E5%87%BD%E6%95%B0/);
+    assert.match(deep, /kdeep=1/);
+    stub.calls.length = 0;
+    await map.mb_search.execute({ knowledge: '函数', kdeep: false });
+    assert.match(stub.calls.find((item) => item.url.includes('/api/mistakes')).url, /kdeep=0/);
+    stub.calls.length = 0;
+    await map.mb_search.execute({ nokp: true });
+    assert.match(stub.calls.find((item) => item.url.includes('/api/mistakes')).url, /nokp=1/);
+    stub.calls.length = 0;
+    await map.mb_search.execute({ q: '极限', sort: 'stability' });
+    assert.match(stub.calls.find((item) => item.url.includes('/api/mistakes')).url, /sort=stability/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_get 列出已有变式，没有就说暂无', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12': { id: 12, question: '求极限', status: 'new' },
+    '/api/mistakes/12/reviews': { items: [] },
+    '/api/mistakes/12/variants': { items: [
+      { id: 41, question: '求 lim(x→0) sin 3x / 2x', times_used: 2 },
+      { id: 42, question: '求 lim(x→0) tan 2x / x', times_used: 0 },
+    ], total: 2 },
+  });
+  try {
+    const { map } = tools();
+    const withRows = await map.mb_get.execute({ id: 12 });
+    assert.match(withRows.text, /已有变式（2 条）/);
+    assert.match(withRows.text, /#41 求 lim\(x→0\) sin 3x \/ 2x · 练过 2 次/);
+    assert.match(withRows.text, /#42 .*练过 0 次/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_get：老服务没有变式接口时不炸，只给一句暂无', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12': { id: 12, question: '求极限', status: 'new' },
+    '/api/mistakes/12/reviews': { items: [] },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_get.execute({ id: 12 });
+    assert.match(value.text, /题目：求极限/);
+    assert.match(value.text, /已有变式：暂无/);
+  } finally {
+    stub.restore();
+  }
+});

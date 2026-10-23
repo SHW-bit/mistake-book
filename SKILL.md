@@ -80,6 +80,10 @@ AI 让学习「感觉」变容易了，这恰恰是问题。四个认知陷阱�
 
 `python mb.py show <id>`，拿到题干、我的错答、正确答案、**解析**、错因、知识点、四档间隔预览、变式列表。讲题时用 `解析` 作为参考解法，但**先让用户自己说思路**，别直接把解析念出来。
 
+**面板里走 `mb_get(id)`。v0.37 起它的输出里带「已有变式（N 条）：#41 … · 练过 2 次」或「已有变式：暂无」——补题之前先看这一段，别重复出同一道。**
+
+> 从 DSH 面板点「让 AI 带我复习这道」进来的会话，首条消息里**只有题干、我的错答、错因、知识点、来源，没有正确答案和解析**（v0.37 改的）。这不是 bug：需要时你自己 `mb_get` 取。**学生答完之前不要去取**，取了也别念出来。
+
 **如果用户说「专练反复错的」「再战」「把老错的题拿出来」**，不要自己从 `list` 里翻，直接跑：
 
 ```bash
@@ -107,7 +111,7 @@ python mb.py arena --limit 5
 ### 阶段 3 · 出变式题
 
 先查库存：
-- 在 DSH 面板里 → 直接看 `mb_due` / `mb_search` 的返回行，形如 `#12 [高数] 求极限（复习中 · 无变式）`，`无变式` 就是该补的题
+- 在 DSH 面板里 → 直接看 `mb_due` / `mb_search` 的返回行，形如 `#12 [高数] 求极限（复习中 · 无变式）`，`无变式` 就是该补的题；想知道某道题已经攒了哪些变式，用 `mb_get(id)` 的「已有变式」段
 - 在 CLI 里 → `python mb.py variant next <id>`
 
 - 有现成的 → 直接用（系统按 `times_used` 升序轮换，保证不会总出同一道）
@@ -312,11 +316,12 @@ python mb.py alias rm 求导              # 删别名
 python mb.py list --knowledge 函数      # 按知识点筛选，默认含子树
 python mb.py list --knowledge 函数 --exact   # 只要精确等于（不含子树）
 python mb.py list --kq 单调            # 包含匹配（模糊找）
-python mb.py list --nokp               # 只看没填知识点的（未归类）
+python mb.py list --nokp               # 只看没填知识点的（未归类）；面板里用 mb_search(nokp=true)
 python mb.py merge 111 2 --to 函数/定义域   # 合并脏知识点（连子树搬，并登记别名）
 python mb.py meta-merge subject 1 未分类 --to 数学   # 合并学科脏值（整列改写）
 python mb.py meta-merge tag 4 --to 极限              # 合并标签脏值（精确匹配，不串味）
 python mb.py list --sort due            # 排序：created / due / stability / errors
+python mb.py due --sort errors          # 面板里用 mb_due(sort="errors")：错得最多的排前面
 python mb.py profile                    # 学习画像（薄弱知识点 + 证据）
 python mb.py mastery                    # 掌握门禁：过线 / 差在哪
 python mb.py plan --days 7 --limit 10   # 今日复习计划（按天分桶 + 每日上限）
