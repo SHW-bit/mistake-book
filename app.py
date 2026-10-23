@@ -1526,9 +1526,11 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
     免得调用方传个拼错的名字进来静默返回空列表。
     """
     if kind == "subject":
+        # 空学科不进入下拉/合并面板：它不是「一个值」，没法管理，
+        # 而且「删除学科」会主动把 subject 清成空串，这些空值会越攒越多。
         rows = conn.execute(
             "SELECT subject AS name, COUNT(*) AS n FROM mistakes "
-            "GROUP BY subject ORDER BY n DESC, subject").fetchall()
+            "WHERE subject <> '' GROUP BY subject ORDER BY n DESC, subject").fetchall()
         return [{"name": r[0], "count": r[1]} for r in rows]
     if kind == "tag":
         counts = {}
@@ -1554,9 +1556,9 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
         raise ValidationError("不支持的合并类型：%s（只能是 subject / tag）" % kind)
     if not isinstance(sources, list) or not sources:
         raise ValidationError("sources 必须是非空的名称数组")
+    # target 为空 = 「删除」：把值从所有题上摘掉（学科变未分类、标签消失），
+    # 而不是报错 —— 用户要的就是"这个下拉项我不要了"。
     target = (target or "").strip()
-    if not target:
-        raise ValidationError("目标名称不能为空")
     if len(target) > 100:
         raise ValidationError("目标名称过长（上限 100 字）")
 
@@ -1588,9 +1590,11 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
                 out, seen = [], set()
                 for t in tags:
                     t = target if t == name else t
-                    if t not in seen:
-                        seen.add(t)
-                        out.append(t)
+                    # target 为空 = 删除该标签：不能把空串塞回 tags 列
+                    if not t or t in seen:
+                        continue
+                    seen.add(t)
+                    out.append(t)
                 conn.execute("UPDATE mistakes SET tags = ?, updated_at = ? WHERE id = ?",
                              (",".join(out), stamp, row[0]))
                 ids.append(row[0])
@@ -1598,10 +1602,10 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
     conn.commit()
 
     if moved:
-        append_event(conn, "merged_" + kind, target=target,
+        append_event(conn, ("cleared_" if not target else "merged_") + kind, target=target,
                      sources=",".join(clean), count=len(moved))
     return {"kind": kind, "target": target, "sources": clean,
-            "moved": len(moved), "ids": moved}
+            "moved": len(moved), "ids": moved, "cleared": not target}
 
 
 def knowledge_facets(conn: sqlite3.Connection, subject: str = "") -> dict:
@@ -1654,8 +1658,10 @@ def merge_knowledge(conn: sqlite3.Connection, sources, target: str) -> dict:
     """
     if not isinstance(sources, list) or not sources:
         raise ValidationError("sources 必须是非空的知识点数组")
+    # target 为空 = 「删除这个知识点」：把题上的知识点清空（不是报错）。
+    clearing = not (target or "").strip()
     target = resolve_knowledge(conn, target or "")
-    if not target:
+    if not target and not clearing:
         raise ValidationError("目标知识点不能为空")
 
     clean = []
@@ -1677,20 +1683,23 @@ def merge_knowledge(conn: sqlite3.Connection, sources, target: str) -> dict:
         for row in rows:
             suffix = row["knowledge"][len(path):]
             conn.execute("UPDATE mistakes SET knowledge = ?, updated_at = ? WHERE id = ?",
-                         (target + suffix, stamp, row["id"]))
+                         ((target + suffix) if not clearing else "", stamp, row["id"]))
             moved.append(row["id"])
-        # 源名 -> 规范名：以后写 "111" 会自动归到规范名
-        conn.execute("INSERT INTO knowledge_aliases (alias, canonical, created_at) "
-                     "VALUES (?,?,?) ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical",
-                     (path, target, stamp))
-        aliases_added += 1
+        # 源名 -> 规范名：以后写 "111" 会自动归到规范名。
+        # 删除模式下不登记别名 —— 别名指向空串会让以后正常录入的知识点被悄悄清空。
+        if not clearing:
+            conn.execute("INSERT INTO knowledge_aliases (alias, canonical, created_at) "
+                         "VALUES (?,?,?) ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical",
+                         (path, target, stamp))
+            aliases_added += 1
     conn.commit()
 
     if moved:
-        append_event(conn, "merged", knowledge=target, sources=",".join(clean),
-                     count=len(moved))
+        append_event(conn, "cleared_knowledge" if clearing else "merged", knowledge=target,
+                     sources=",".join(clean), count=len(moved))
     return {"target": target, "sources": clean, "merged": len(clean),
-            "moved": len(moved), "ids": moved, "aliases_added": aliases_added}
+            "moved": len(moved), "ids": moved, "aliases_added": aliases_added,
+            "cleared": clearing}
 
 
 _EMPTY_TREE_STATS = {"mistakes": 0, "due": 0, "graded": 0, "correct": 0, "lapses": 0,

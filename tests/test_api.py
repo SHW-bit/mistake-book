@@ -1577,8 +1577,21 @@ class ApiTest(unittest.TestCase):
     def test_knowledge_merge_rejects_empty(self):
         status, _ = self.call("POST", "/api/knowledge/merge", {"sources": [], "target": "x"})
         self.assertEqual(status, 400)
-        status, _ = self.call("POST", "/api/knowledge/merge", {"sources": ["a"], "target": ""})
-        self.assertEqual(status, 400)
+
+    def test_knowledge_merge_empty_target_clears(self):
+        # v0.39：目标留空 = 删除这个知识点，把题上的值清空，而不是报错。
+        item = self.create(question="脏值题", knowledge="111")["id"]
+        status, body = self.call("POST", "/api/knowledge/merge",
+                                 {"sources": ["111"], "target": ""})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["data"]["cleared"])
+        self.assertEqual(body["data"]["moved"], 1)
+        _, got = self.call("GET", "/api/mistakes/%d" % item)
+        self.assertEqual(got["data"]["knowledge"], "")
+        # 删除不登记别名：之后正常录入 "111" 不会被悄悄清空
+        status, _ = self.call("POST", "/api/mistakes",
+                              {"question": "再写一次", "knowledge": "111"})
+        self.assertEqual(status, 201)
 
     def test_mb_list_knowledge_flags(self):
         self.create(question="二次函数题", knowledge="函数/二次函数")
@@ -2330,11 +2343,26 @@ class ApiTest(unittest.TestCase):
 
     def test_meta_merge_validation(self):
         for payload in ({'kind': 'knowledge', 'sources': ['a'], 'target': 'b'},
-                        {'kind': 'subject', 'sources': [], 'target': 'b'},
-                        {'kind': 'subject', 'sources': ['a'], 'target': '   '}):
+                        {'kind': 'subject', 'sources': [], 'target': 'b'}):
             status, body = self.call('POST', '/api/meta/merge', payload)
             self.assertEqual(status, 400, body)
             self.assertEqual(body['error']['code'], 'VALIDATION_ERROR')
+
+    def test_meta_merge_empty_target_clears(self):
+        # v0.39：目标留空 = 删除这个值（学科变未分类 / 标签消失）。
+        a = self.create(question='脏学科', subject='1')['id']
+        b = self.create(question='脏标签', tags='14,极限')['id']
+        status, body = self.call('POST', '/api/meta/merge',
+                                 {'kind': 'subject', 'sources': ['1'], 'target': ''})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['data']['cleared'])
+        _, got = self.call('GET', '/api/mistakes/%d' % a)
+        self.assertEqual(got['data']['subject'], '')
+        status, body = self.call('POST', '/api/meta/merge',
+                                 {'kind': 'tag', 'sources': ['14'], 'target': ''})
+        self.assertEqual(status, 200, body)
+        _, got = self.call('GET', '/api/mistakes/%d' % b)
+        self.assertEqual(got['data']['tags'], '极限')
 
     def test_meta_merge_writes_event(self):
         self.create(question='事件', subject='1')

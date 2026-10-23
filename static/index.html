@@ -483,6 +483,19 @@ label input,label select,label textarea{width:100%}
   .imgempty{font-size:12px;color:var(--ink-3)}
   .row-inline{display:flex;gap:6px}
   .row-inline select{flex:1 1 auto;min-width:0}
+.row-inline input{flex:1 1 auto;min-width:0}
+.row-inline button{flex:none}
+.moreopts{margin:2px 0 4px;padding:0 12px;background:var(--subtle);border:1px solid var(--line);border-radius:var(--radius-sm)}
+.moreopts>summary{padding:9px 0;font-size:12.5px}
+.moreopts[open]>summary{padding-bottom:4px}
+.moreopts>label,.moreopts>.grid2{margin-bottom:12px}
+.fcbar{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:12px 0}
+.fcbar label{flex:1 1 180px;min-width:0}
+.fcbar>button{flex:none}
+.fcitem{display:flex;align-items:center;gap:8px}
+.fcitem .vq{flex:1 1 auto;min-width:0}
+.fcitem .del{flex:none;border-color:transparent;background:transparent;color:var(--muted);padding:0 8px;height:var(--ctl-sm)}
+.fcitem .del:hover{color:#b3261e;background:var(--hover)}
   .dlgbody.single{grid-template-columns:minmax(0,1fr)}
   .dlgbody.single .main-col{border-right:0}
   .papers{display:grid;gap:8px}
@@ -867,44 +880,55 @@ label input,label select,label textarea{width:100%}
         <div class="hist" id="hist" hidden></div>
         <div class="grid2">
           <label>学科
-            <input id="f-subject" list="subject-list" placeholder="如 数学">
+            <span class="row-inline">
+              <input id="f-subject" list="subject-list" placeholder="如 数学">
+              <button type="button" class="ghost mini" data-facets="subject" title="管理学科下拉">管理</button>
+            </span>
           </label>
-          <label>难度
-            <input id="f-difficulty" type="range" min="1" max="5" step="1" value="3">
+          <label>知识点
+            <span class="row-inline">
+              <input id="f-knowledge" list="knowledge-list" placeholder="如 函数/单调性">
+              <button type="button" class="ghost mini" data-facets="knowledge" title="管理知识点下拉">管理</button>
+            </span>
           </label>
         </div>
         <div class="grid2">
           <label>错因分类
             <select id="f-type"><option value="">未分类</option></select>
           </label>
-          <label>来源
-            <input id="f-source" list="source-list" placeholder="如 期中 / 练习册">
+          <label>状态
+            <select id="f-status">
+              <option value="new">待复习</option>
+              <option value="reviewing">复习中</option>
+              <option value="mastered">已掌握</option>
+            </select>
           </label>
         </div>
-        <div class="grid2">
-          <label>知识点
-            <input id="f-knowledge" list="knowledge-list" placeholder="如 函数/单调性（用 / 分层）">
+        <details class="fold moreopts">
+          <summary>更多选项：难度 · 来源 · 标签 · 试卷 · 错因描述</summary>
+          <div class="grid2">
+            <label>难度
+              <input id="f-difficulty" type="range" min="1" max="5" step="1" value="3">
+            </label>
+            <label>来源
+              <input id="f-source" list="source-list" placeholder="如 期中 / 练习册">
+            </label>
+          </div>
+          <div class="grid2">
+            <label>标签（逗号分隔）
+              <input id="f-tags" placeholder="如 函数,单调性">
+            </label>
+            <label>试卷
+              <span class="row-inline">
+                <select id="f-paper"><option value="">不归卷</option></select>
+                <button type="button" class="ghost mini" id="btn-paper-new">新建</button>
+              </span>
+            </label>
+          </div>
+          <label>错因（详细描述）
+            <textarea id="f-error-reason" rows="3" placeholder="如 忘记讨论二次项系数为 0"></textarea>
           </label>
-          <label>标签（逗号分隔）
-            <input id="f-tags" placeholder="如 函数,单调性">
-          </label>
-        </div>
-        <label>试卷
-          <span class="row-inline">
-            <select id="f-paper"><option value="">不归卷</option></select>
-            <button type="button" class="ghost mini" id="btn-paper-new">新建</button>
-          </span>
-        </label>
-        <label>状态
-          <select id="f-status">
-            <option value="new">待复习</option>
-            <option value="reviewing">复习中</option>
-            <option value="mastered">已掌握</option>
-          </select>
-        </label>
-        <label>错因（详细描述）
-          <textarea id="f-error-reason" rows="3" placeholder="如 忘记讨论二次项系数为 0"></textarea>
-        </label>
+        </details>
         <div class="varbox" id="var-box" hidden>
           <div class="varbox-head"><b>变式题</b><span id="var-hint" style="font-size:12px;color:var(--muted)"></span></div>
           <div class="varlist" id="var-list"></div>
@@ -931,6 +955,38 @@ label input,label select,label textarea{width:100%}
       </div>
       <button type="button" class="ghost" id="btn-cancel">取消</button>
       <button type="submit" class="primary">保存</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="facets-dlg">
+  <form class="form" id="form-facets">
+    <header class="dlghead">
+      <h2 id="fc-title">管理下拉值</h2>
+      <button type="button" class="xclose" id="btn-facets-close" aria-label="关闭">×</button>
+    </header>
+    <div class="dlgbody single">
+      <section class="main-col">
+        <p class="hint" id="fc-hint">勾选要清理的项，填一个规范名再点「应用」= 合并；不填规范名直接应用 = 删除（题上的这个值会被清空，题不会删）。也可以点行尾的 × 单个删除。</p>
+        <div class="fcbar">
+          <label>类别
+            <select id="fc-kind">
+              <option value="subject">学科</option>
+              <option value="knowledge">知识点</option>
+              <option value="tag">标签</option>
+            </select>
+          </label>
+          <label>合并到（留空 = 删除）
+            <input id="fc-target" placeholder="如 高等数学">
+          </label>
+          <button type="button" class="primary" id="fc-apply">应用</button>
+        </div>
+        <div class="varlist" id="fc-list"></div>
+      </section>
+    </div>
+    <footer class="actions">
+      <span id="fc-msg" class="hint"></span>
+      <button type="button" class="ghost" id="btn-facets-done">关闭</button>
     </footer>
   </form>
 </dialog>
@@ -1590,6 +1646,78 @@ label input,label select,label textarea{width:100%}
       $('#mg-list').innerHTML = '<div style="font-size:12px;color:var(--danger)">加载失败：' +
         esc(e.message) + '</div>';
     });
+  }
+
+  // ---- 下拉值管理（v0.39）----
+  // 录入弹窗里「学科 / 知识点」旁边那个「管理」按钮打开的就是这个。
+  // 三种操作：勾选 + 填规范名 = 合并；勾选 + 留空 = 删除（题上的值清空）；行尾 × = 单个删除。
+  // 删除走的是同一个接口：target 传空串，后端把值从题上摘掉，题本身不删。
+  var FACET_KIND_LABEL = { subject: '学科', knowledge: '知识点', tag: '标签' };
+
+  function facetKind() { return $('#fc-kind').value; }
+
+  function loadFacetList() {
+    var kind = facetKind();
+    return api('/api/meta').then(function (m) {
+      var rows;
+      if (kind === 'subject') {
+        rows = (m.subject_facets || []).map(function (f) {
+          return { value: f.name, name: f.name, depth: 1, count: f.count };
+        });
+      } else if (kind === 'tag') {
+        rows = (m.tag_facets || []).map(function (f) {
+          return { value: f.name, name: f.name, depth: 1, count: f.count };
+        });
+      } else {
+        rows = (m.knowledge || []).map(function (k) {
+          return typeof k === 'string'
+            ? { value: k, name: k, depth: 1, count: 0 }
+            : { value: k.path, name: k.name, depth: k.depth, count: k.count };
+        });
+      }
+      if (!rows.length) {
+        $('#fc-list').innerHTML =
+          '<div style="font-size:12px;color:var(--muted)">这一类还没有值。</div>';
+        return;
+      }
+      $('#fc-list').innerHTML = rows.map(function (k) {
+        return '<div class="varitem fcitem">' +
+          '<input type="checkbox" value="' + esc(k.value) + '">' +
+          '<span class="vq" title="' + esc(k.value) + '">' +
+            new Array((k.depth || 1)).join('　') + esc(k.name) + '</span>' +
+          '<span class="vm">' + (k.count || 0) + ' 题</span>' +
+          '<button type="button" class="del" data-del="' + esc(k.value) + '" title="删除这个值">×</button>' +
+          '</div>';
+      }).join('');
+    }).catch(function (e) {
+      $('#fc-list').innerHTML = '<div style="font-size:12px;color:var(--danger)">加载失败：' +
+        esc(e.message) + '</div>';
+    });
+  }
+
+  function openFacets(kind) {
+    if (kind) { $('#fc-kind').value = kind; }
+    $('#fc-target').value = '';
+    $('#fc-msg').textContent = '';
+    var dlg = $('#facets-dlg');
+    if (typeof dlg.showModal === 'function') { dlg.showModal(); } else { dlg.setAttribute('open', ''); }
+    loadFacetList();
+  }
+
+  function facetUrl(kind) {
+    return kind === 'knowledge' ? '/api/knowledge/merge' : '/api/meta/merge';
+  }
+
+  function facetBody(kind, sources, target) {
+    return kind === 'knowledge'
+      ? { sources: sources, target: target }
+      : { kind: kind, sources: sources, target: target };
+  }
+
+  function facetAfterChange(msg) {
+    $('#fc-target').value = '';
+    $('#fc-msg').textContent = msg || '';
+    return Promise.all([loadFacetList(), loadStats()]).catch(function () {});
   }
 
   // ---- 变式缺口 ----
@@ -2613,6 +2741,70 @@ label input,label select,label textarea{width:100%}
       alert('已处理 ' + sources.length + ' 个' + word + '，改写 ' + d.moved + ' 道题 → ' + d.target);
       return Promise.all([loadMergeList(), loadStats(), loadTree()]);
     }).catch(function (err) { alert('合并失败：' + err.message); });
+  });
+
+  // ---- 下拉值管理：打开 / 合并 / 删除 ----
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-facets]');
+    if (btn) { openFacets(btn.dataset.facets); }
+  });
+
+  $('#fc-kind').addEventListener('change', function () {
+    $('#fc-target').value = '';
+    $('#fc-msg').textContent = '';
+    $('#fc-target').setAttribute('list',
+      facetKind() === 'subject' ? 'subject-list' : 'knowledge-list');
+    loadFacetList();
+  });
+
+  $('#fc-list').addEventListener('click', function (e) {
+    var del = e.target.closest('[data-del]');
+    if (!del) { return; }
+    var kind = facetKind();
+    var word = FACET_KIND_LABEL[kind] || '值';
+    var name = del.dataset.del;
+    if (!confirm('删除' + word + '「' + name + '」？\n题上的这个值会被清空，题本身不会删。')) { return; }
+    api(facetUrl(kind), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(facetBody(kind, [name], ''))
+    }).then(function (d) {
+      return facetAfterChange('已删除「' + name + '」，清空 ' + (d.moved || 0) + ' 道题上的该值');
+    }).catch(function (err) { $('#fc-msg').textContent = '删除失败：' + err.message; });
+  });
+
+  $('#fc-apply').addEventListener('click', function () {
+    var kind = facetKind();
+    var word = FACET_KIND_LABEL[kind] || '值';
+    var target = $('#fc-target').value.trim();
+    var sources = [];
+    var boxes = document.querySelectorAll('#fc-list input[type="checkbox"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) { sources.push(boxes[i].value); }
+    }
+    if (!sources.length) { alert('先勾选要处理的' + word); return; }
+    if (target && sources.indexOf(target) >= 0) {
+      alert('「' + target + '」在勾选的列表里，请把它取消勾选再合并');
+      return;
+    }
+    var tip = target
+      ? '把 ' + sources.length + ' 个' + word + '并到「' + target + '」？\n题目会被改写，且不会自动还原。'
+      : '删除这 ' + sources.length + ' 个' + word + '？\n题上的这个值会被清空，题本身不会删。';
+    if (!confirm(tip)) { return; }
+    api(facetUrl(kind), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(facetBody(kind, sources, target))
+    }).then(function (d) {
+      var msg = target
+        ? '已合并 ' + sources.length + ' 个' + word + ' → ' + target + '，改写 ' + (d.moved || 0) + ' 道题'
+        : '已删除 ' + sources.length + ' 个' + word + '，清空 ' + (d.moved || 0) + ' 道题上的该值';
+      return facetAfterChange(msg);
+    }).catch(function (err) { alert('处理失败：' + err.message); });
+  });
+
+  ['#btn-facets-close', '#btn-facets-done'].forEach(function (id) {
+    $(id).addEventListener('click', function () { $('#facets-dlg').close(); });
   });
 
   $('#al-add').addEventListener('click', function () {

@@ -124,8 +124,14 @@ function nodesOf(node, tag, out = []) {
 const META = {
   subjects: ['高数'], knowledge: ['极限'], mistake_types: ['概念不清'], sources: ['作业'],
 };
+// 到期徽标是拿「今天」比出来的，写死日期会在第二天变成「逾期 N 天」——按运行当天生成。
+const TODAY = (() => {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+})();
 const ITEM = { id: 6, question: '求 lim(x→0) sin x / x', subject: '高数', knowledge: '极限',
-  next_review_at: '2026-10-23 10:00:00', review_count: 2 };
+  next_review_at: TODAY + ' 10:00:00', review_count: 2 };
 const DETAIL = { id: 6, question: '求 lim(x→0) sin x / x', answer: '1', analysis: '等价无穷小',
   my_answer: '0', mistake_type: '概念不清', knowledge: '极限', review_count: 2,
   subject: '高数', difficulty: 3, tags: '极限,洛必达' };
