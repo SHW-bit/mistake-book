@@ -235,6 +235,36 @@ class ApiTest(unittest.TestCase):
         self.assertIn('class="primary" id="pl-start"', html)
         self.assertIn(".weekbars", html)
 
+    def test_static_knowledge_facets_ui(self):
+        """知识点分层下拉 + 未归类项 + 合并面板（v0.34）。
+
+        知识点以前是自由文本：「111」「2」这样的脏值也能进库，下拉里一串裸字符串
+        既看不出层级也没有题数，点父节点还检索不到子节点里的题。这一版把三件事
+        一起改掉，用断言钉住，免得以后又退回扁平字符串。
+        """
+        with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        # 1) 分层下拉：读 facet 的 depth/count，渲染缩进与题数
+        self.assertIn("m.knowledge_flat", html)
+        self.assertIn("m.knowledge_unclassified", html)
+        self.assertIn("new Array((k.depth || 1)).join", html)
+        # 2) 未归类走独立参数，不混进 knowledge
+        self.assertIn("p.set('nokp', '1')", html)
+        self.assertIn("p.set('kdeep', '1')", html)
+        self.assertIn("value=\"__none__\"", html)
+        # 3) 合并面板：勾选源 → 规范名 → POST /api/knowledge/merge
+        self.assertIn('id="st-merge-box"', html)
+        self.assertIn('id="mg-list"', html)
+        self.assertIn('id="mg-merge"', html)
+        self.assertIn("'/api/knowledge/merge'", html)
+        for name in ('function mergeSources(', 'function loadMergeList('):
+            self.assertIn(name, html)
+        # 4) 表单知识点输入接上 datalist（原来没有建议列表）
+        self.assertIn('id="f-knowledge" list="knowledge-list"', html)
+        self.assertIn('<datalist id="knowledge-list">', html)
+        # 5) 卡片 chip 只显示末段，全路径放 title
+        self.assertIn("String(it.knowledge).split('/').pop()", html)
+
     def test_create_requires_question(self):
         status, body = self.call("POST", "/api/mistakes", {"subject": "数学"})
         self.assertEqual(status, 400)
@@ -1463,12 +1493,138 @@ class ApiTest(unittest.TestCase):
         self.create(question="单调性题", knowledge="函数/单调性")
         self.create(question="数列题", knowledge="数列")
 
+        # v0.34 改了默认值：点父节点就该看到子树里的题，显式 kdeep=0 才只看自己
         _, body = self.call("GET", "/api/mistakes?knowledge=" + urllib.parse.quote("函数"))
-        self.assertEqual(body["data"]["total"], 0)  # 精确匹配：没有题直接挂在「函数」上
+        self.assertEqual(body["data"]["total"], 2)
 
         _, body = self.call("GET", "/api/mistakes?knowledge=" + urllib.parse.quote("函数")
                             + "&kdeep=1")
         self.assertEqual(body["data"]["total"], 2)
+
+        _, body = self.call("GET", "/api/mistakes?knowledge=" + urllib.parse.quote("函数")
+                            + "&kdeep=0")
+        self.assertEqual(body["data"]["total"], 0)  # 没有题直接挂在「函数」上
+
+    # -- v0.34：分类/归类 --
+    def test_meta_knowledge_facets_have_counts_and_depth(self):
+        self.create(question="a", knowledge="函数/二次函数")
+        self.create(question="b", knowledge="函数/二次函数")
+        self.create(question="c", knowledge="函数/单调性")
+        self.create(question="d", knowledge="数列")
+        self.create(question="e")  # 没归类
+
+        _, body = self.call("GET", "/api/meta")
+        data = body["data"]
+        items = {it["path"]: it for it in data["knowledge"]}
+        self.assertEqual(items["函数"]["count"], 3)          # 自己没题，汇总两个子节点
+        self.assertEqual(items["函数"]["depth"], 1)
+        self.assertEqual(items["函数"]["parent"], "")
+        self.assertEqual(items["函数/二次函数"]["count"], 2)
+        self.assertEqual(items["函数/二次函数"]["depth"], 2)
+        self.assertEqual(items["函数/二次函数"]["parent"], "函数")
+        self.assertEqual(items["数列"]["count"], 1)
+        self.assertEqual(data["knowledge_flat"],
+                         ["函数/二次函数", "函数/单调性", "数列"])
+        self.assertEqual(data["knowledge_unclassified"], 1)
+
+    def test_knowledge_filter_keyword_and_unclassified(self):
+        self.create(question="二次函数题", knowledge="函数/二次函数")
+        self.create(question="数列题", knowledge="数列")
+        self.create(question="脏值题", knowledge="111")
+        self.create(question="没归类")
+
+        _, body = self.call("GET", "/api/mistakes?kq=" + urllib.parse.quote("函数"))
+        self.assertEqual(body["data"]["total"], 1)
+
+        _, body = self.call("GET", "/api/mistakes?nokp=1")
+        self.assertEqual(body["data"]["total"], 1)
+        self.assertEqual(body["data"]["items"][0]["question"], "没归类")
+
+    def test_knowledge_merge_moves_children_and_registers_alias(self):
+        a = self.create(question="脏值一", knowledge="111")
+        b = self.create(question="脏值二", knowledge="2")
+        c = self.create(question="子树", knowledge="111/子节点")
+
+        status, body = self.call("POST", "/api/knowledge/merge", {
+            "sources": ["111", "2"], "target": "函数/二次函数"})
+        self.assertEqual(status, 200, body)
+        data = body["data"]
+        self.assertEqual(data["target"], "函数/二次函数")
+        self.assertEqual(data["merged"], 2)
+        self.assertEqual(data["moved"], 3)
+        self.assertEqual(sorted(data["ids"]), sorted([a["id"], b["id"], c["id"]]))
+
+        for mid, expect in ((a["id"], "函数/二次函数"), (b["id"], "函数/二次函数"),
+                            (c["id"], "函数/二次函数/子节点")):
+            _, got = self.call("GET", "/api/mistakes/%d" % mid)
+            self.assertEqual(got["data"]["knowledge"], expect)
+
+        # 源名登记成别名：以后再录 "111" 自动落到规范名
+        _, aliases = self.call("GET", "/api/knowledge/aliases")
+        pairs = {it["alias"]: it["canonical"] for it in aliases["data"]["items"]}
+        self.assertEqual(pairs["111"], "函数/二次函数")
+        self.assertEqual(pairs["2"], "函数/二次函数")
+        item = self.create(question="又写脏了", knowledge="111")
+        self.assertEqual(item["knowledge"], "函数/二次函数")
+
+    def test_knowledge_merge_rejects_parent_into_child(self):
+        self.create(question="题", knowledge="函数/二次函数")
+        status, body = self.call("POST", "/api/knowledge/merge", {
+            "sources": ["函数"], "target": "函数/二次函数"})
+        self.assertEqual(status, 400)
+        self.assertIn("子知识点", body["error"]["message"])
+
+    def test_knowledge_merge_rejects_empty(self):
+        status, _ = self.call("POST", "/api/knowledge/merge", {"sources": [], "target": "x"})
+        self.assertEqual(status, 400)
+        status, _ = self.call("POST", "/api/knowledge/merge", {"sources": ["a"], "target": ""})
+        self.assertEqual(status, 400)
+
+    def test_mb_list_knowledge_flags(self):
+        self.create(question="二次函数题", knowledge="函数/二次函数")
+        self.create(question="数列题", knowledge="数列")
+        self.create(question="脏值题", knowledge="111")
+        self.create(question="没归类")
+
+        def run(argv):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = mb.main(["--db", self.db, "list"] + argv)
+            self.assertEqual(code, 0)
+            return json.loads(out.getvalue())
+
+        # --knowledge 走子树：点父节点能看到子节点里的题
+        self.assertEqual(run(["--knowledge", "函数"])["total"], 1)
+        # --exact 只此节点
+        self.assertEqual(run(["--knowledge", "函数", "--exact"])["total"], 0)
+        # --kq 模糊
+        self.assertEqual(run(["--kq", "函数"])["total"], 1)
+        # --nokp 只看没归类的
+        data = run(["--nokp"])
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["items"][0]["question"], "没归类")
+
+    def test_mb_merge_cli(self):
+        a = self.create(question="脏值一", knowledge="111")
+        b = self.create(question="脏值二", knowledge="2")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(["--db", self.db, "merge", "111", "2", "--to", "函数/二次函数"])
+        self.assertEqual(code, 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data["merged"], 2)
+        self.assertEqual(data["moved"], 2)
+        _, got = self.call("GET", "/api/mistakes/%d" % a["id"])
+        self.assertEqual(got["data"]["knowledge"], "函数/二次函数")
+        _, got = self.call("GET", "/api/mistakes/%d" % b["id"])
+        self.assertEqual(got["data"]["knowledge"], "函数/二次函数")
+
+    def test_mb_merge_read_only_refused(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(["--db", self.db, "--read-only", "merge", "a", "--to", "b"])
+        self.assertEqual(code, 2)
+        self.assertIn("read-only", out.getvalue())
 
     def test_mb_ktree(self):
         self.create(question="树题", knowledge="函数/二次函数")

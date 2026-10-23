@@ -282,6 +282,57 @@ test('筛选抽屉与条件 chip：勾上的项能单独清除', () => {
   assert.match(text, /含已斩题/);
 });
 
+// v0.34：/api/meta 的 knowledge 变成 {path,name,parent,depth,count}。
+// 下拉要按层级缩进 + 带题数，另给一个「未归类」项；老服务返回字符串数组也不能崩。
+const META_FACETS = {
+  subjects: ['高数'],
+  knowledge: [
+    { path: '函数', name: '函数', parent: '', depth: 1, count: 3 },
+    { path: '函数/二次函数', name: '二次函数', parent: '函数', depth: 2, count: 2 },
+    { path: '数列', name: '数列', parent: '', depth: 1, count: 1 },
+  ],
+  knowledge_flat: ['函数/二次函数', '数列'],
+  knowledge_unclassified: 2,
+  mistake_types: ['概念不清'], sources: ['作业'],
+};
+
+test('知识点下拉：按层级缩进、带题数、另有「未归类」项', () => {
+  const seed = [Object.assign({}, FILTERS), [], 0, false, '', {}, false, false, false, true, ''];
+  const { plugin } = loadPlugin(seed);
+  const labels = dropdownLabels(plugin.__test__.ListTab({ meta: META_FACETS, onOpen: () => {} }));
+  assert.ok(labels.includes('全部知识点'), '保留全选项');
+  assert.ok(labels.includes('（未归类 · 2 道）'), '未归类要带题数');
+  // 平铺（depth 1）与子层（depth 2）都出现，子层前面有全角空格缩进
+  assert.ok(labels.some((l) => l.includes('函数（3）')), '父节点带汇总题数');
+  const child = labels.find((l) => l.includes('二次函数（2）'));
+  assert.ok(child, '子节点带自己的题数');
+  assert.ok(child.startsWith('　'), '子节点要比父节点多一级缩进');
+  assert.ok(labels.includes('数列（1）'));
+});
+
+test('知识点下拉：老服务返回字符串数组时不崩（兼容）', () => {
+  const seed = [Object.assign({}, FILTERS), [], 0, false, '', {}, false, false, false, true, ''];
+  const { plugin } = loadPlugin(seed);
+  const labels = dropdownLabels(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }));
+  assert.ok(labels.includes('极限'), '字符串形态直接当平铺节点');
+  assert.ok(!labels.some((l) => l.includes('[object')), '不能渲染成 [object Object]');
+});
+
+test('筛选抽屉：选知识点带 kdeep，选未归类换成 nokp', () => {
+  const byKp = Object.assign({}, FILTERS, { due: false, knowledge: '函数', kdeep: true, unclassified: false });
+  let seed = [byKp, [], 0, false, '', {}, false, false, false, true, ''];
+  let { plugin } = loadPlugin(seed);
+  let text = textOf(render(plugin.__test__.ListTab({ meta: META_FACETS, onOpen: () => {} }))).join('|');
+  assert.match(text, /知识点：函数（含子类）/);
+  assert.match(text, /含子类/);
+
+  const byNone = Object.assign({}, FILTERS, { due: false, knowledge: '', kdeep: true, unclassified: true });
+  seed = [byNone, [], 0, false, '', {}, false, false, false, true, ''];
+  ({ plugin } = loadPlugin(seed));
+  text = textOf(render(plugin.__test__.ListTab({ meta: META_FACETS, onOpen: () => {} }))).join('|');
+  assert.match(text, /未归类/);
+});
+
 // 「更多」菜单：窄面板下按钮被挤到第二行左端，right:0 会把菜单推到视口外；
 // 所以它跟下拉一样走 fixed + 坐标夹取，并且必须有 .mb-pop 的显式配色。
 test('更多菜单：展开后带 mb-pop 配色与定位，点外部能收起', () => {

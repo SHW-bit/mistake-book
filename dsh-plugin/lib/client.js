@@ -846,7 +846,7 @@ window.__ModuleLoader__.load({
             choices('mb-dl-subject', meta && meta.subjects)),
           h('div.mb-field', null, h('span', null, '知识点'),
             h('input', { value: form.knowledge, onChange: set('knowledge'), list: 'mb-dl-knowledge' }),
-            choices('mb-dl-knowledge', meta && meta.knowledge)),
+            choices('mb-dl-knowledge', (meta && meta.knowledge_flat) || knowledgeFacets(meta).map((f) => f.path))),
           h('div.mb-field', null, h('span', null, '错因分类'),
             h(Dropdown, {
               value: form.mistake_type, placeholder: '（不填）',
@@ -1249,6 +1249,22 @@ window.__ModuleLoader__.load({
 
     /* ── 错题列表（列表 + 筛选 + 批量）────────────────────────────────── */
 
+    // v0.34：/api/meta 的 knowledge 从裸字符串数组升级成 {path,name,parent,depth,count} 对象数组。
+    // 老数据库/老服务仍可能返回字符串，这里统一成对象，调用处不必再判断类型。
+    function knowledgeFacets(meta) {
+      const list = (meta && meta.knowledge) || [];
+      return list.map((item) => (typeof item === 'string'
+        ? { path: item, name: item, parent: '', depth: 1, count: 0 }
+        : { path: item.path, name: item.name || item.path, parent: item.parent || '',
+          depth: item.depth || 1, count: item.count || 0 }));
+    }
+
+    // 层级用全角空格缩进：dropdown 的 label 是纯文本，没有别的缩进手段
+    function facetLabel(facet) {
+      const pad = new Array(Math.max(1, facet.depth || 1)).join('　');
+      return pad + facet.name + (facet.count ? '（' + facet.count + '）' : '');
+    }
+
     // 学习/计划/分析页的「去练」把筛选条件暂存在这里，切到错题页时 ListTab 挂载即取走
     let pendingListFilter = null;
 
@@ -1257,6 +1273,7 @@ window.__ModuleLoader__.load({
       const [filters, setFilters] = useState(() => {
         const base = {
           q: '', subject: '', status: '', mistake_type: '', range: '', knowledge: '', tag: '',
+          kdeep: true, unclassified: false,
           scopeQ: false, suspended: false, due: initialScope === 'due', page: 1, pageSize: 20,
         };
         if (pendingListFilter) { Object.assign(base, pendingListFilter); pendingListFilter = null; }
@@ -1309,7 +1326,12 @@ window.__ModuleLoader__.load({
           if (filters.status) params.push('status=' + encodeURIComponent(filters.status));
           if (filters.mistake_type) params.push('mistake_type=' + encodeURIComponent(filters.mistake_type));
           if (filters.range) params.push('range=' + encodeURIComponent(filters.range));
-          if (filters.knowledge) params.push('knowledge=' + encodeURIComponent(filters.knowledge));
+          // 选具体知识点时默认含子树（kdeep=1）；「未归类」走独立的 nokp=1
+          if (filters.unclassified) params.push('nokp=1');
+          else if (filters.knowledge) {
+            params.push('knowledge=' + encodeURIComponent(filters.knowledge));
+            if (filters.kdeep) params.push('kdeep=1');
+          }
           if (filters.tag) params.push('tag=' + encodeURIComponent(filters.tag.trim()));
           if (filters.due) params.push('due=1');
           if (filters.scopeQ) params.push('scope=question');
@@ -1344,7 +1366,10 @@ window.__ModuleLoader__.load({
       if (filters.subject) chips.push(['subject', '学科：' + filters.subject]);
       if (filters.status) chips.push(['status', '状态：' + (filters.status === 'new' ? '未复习' : filters.status === 'reviewing' ? '复习中' : '已掌握')]);
       if (filters.mistake_type) chips.push(['mistake_type', '错因：' + filters.mistake_type]);
-      if (filters.knowledge) chips.push(['knowledge', '知识点：' + filters.knowledge]);
+      if (filters.unclassified) chips.push(['unclassified', '未归类']);
+      else if (filters.knowledge) {
+        chips.push(['knowledge', '知识点：' + filters.knowledge + (filters.kdeep ? '（含子类）' : '')]);
+      }
       if (filters.tag) chips.push(['tag', '标签：' + filters.tag]);
       if (filters.range) chips.push(['range', '时间：' + (filters.range === 'week' ? '近一周' : '近一月')]);
       if (filters.due) chips.push(['due', '仅到期']);
@@ -1481,11 +1506,22 @@ window.__ModuleLoader__.load({
             onChange: (value) => patch({ range: value }),
           }),
           h(Dropdown, {
-            value: filters.knowledge, placeholder: '全部知识点',
-            options: [{ value: '', label: '全部知识点' }].concat(
-              ((meta && meta.knowledge) || []).map((name) => ({ value: name, label: name }))),
-            onChange: (value) => patch({ knowledge: value }),
+            value: filters.unclassified ? '__none__' : filters.knowledge, placeholder: '全部知识点',
+            options: [{ value: '', label: '全部知识点' }]
+              .concat(((meta && meta.knowledge_unclassified) || 0)
+                ? [{ value: '__none__', label: '（未归类 · ' + meta.knowledge_unclassified + ' 道）' }]
+                : [])
+              .concat(knowledgeFacets(meta).map((facet) => ({ value: facet.path, label: facetLabel(facet) }))),
+            onChange: (value) => patch(value === '__none__'
+              ? { unclassified: true, knowledge: '' }
+              : { unclassified: false, knowledge: value }),
           }),
+          h('label.mb-meta.full', { style: { gap: '12px' } },
+            h('label', null,
+              h('input', {
+                type: 'checkbox', checked: filters.kdeep,
+                onChange: (e) => patch({ kdeep: e.target.checked }),
+              }), ' 含子类')),
           h('input.mb-input', { placeholder: '标签（精确匹配）', value: filters.tag, onChange: (event) => patch({ tag: event.target.value }) }),
           h('label.mb-meta.full', { style: { gap: '12px', marginTop: '2px' } },
             h('label', null, h('input', { type: 'checkbox', checked: filters.scopeQ, onChange: (e) => patch({ scopeQ: e.target.checked }) }), ' 只搜题干'),

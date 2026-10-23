@@ -26,7 +26,7 @@ import sys
 import app
 
 # 会写库的命令：--read-only 时一律拒绝
-WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore")
+WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore", "merge")
 
 BRIEF_FIELDS = ("question", "answer", "my_answer", "error_reason")
 BRIEF_CHARS = 160
@@ -85,6 +85,14 @@ def cmd_list(args, conn) -> dict:
             params[key] = value
     if args.due:
         params["due"] = "1"
+    # v0.34 知识点三档：--knowledge 默认含子类（后端默认 kdeep），--exact 退回只此节点，
+    # --kq 是记不清全名时的模糊找，--nokp 捞没归类的漏网题
+    if getattr(args, "kq", ""):
+        params["kq"] = args.kq
+    if getattr(args, "nokp", False):
+        params["nokp"] = "1"
+    if getattr(args, "exact", False):
+        params["kdeep"] = "0"
     return _trim(app.query_mistakes(conn, params), args.full)
 
 
@@ -147,6 +155,11 @@ def cmd_remind(args, conn) -> dict:
         notify.send(config, "[错题本] " + data["message"], notify.digest(data))
         data["emailed_to"] = config.get("to")
     return data
+
+
+def cmd_merge(args, conn) -> dict:
+    """把若干知识点并到一个规范名（脏值清理 + 同义归一）。"""
+    return app.merge_knowledge(conn, args.sources, args.to)
 
 
 def cmd_ktree(args, conn) -> dict:
@@ -278,6 +291,9 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("q", "subject", "status", "tag", "mistake_type", "range", "knowledge"):
         p.add_argument("--" + name, default="")
     p.add_argument("--due", action="store_true")
+    p.add_argument("--kq", default="", help="知识点关键词模糊匹配（记不清全名时用）")
+    p.add_argument("--nokp", action="store_true", help="只看没填知识点的题")
+    p.add_argument("--exact", action="store_true", help="知识点只匹配该节点，不含子类")
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("show", help="查看一条错题（含复习历史、四档预览、变式题）")
@@ -377,6 +393,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--email", action="store_true", help="顺便发邮件（需 data/notify.json）")
     p.add_argument("--config", default="", help="通知配置路径，默认 data/notify.json")
     p.set_defaults(func=cmd_remind)
+
+    p = sub.add_parser("merge", help="合并知识点：把若干脏值/同义写法并到一个规范名")
+    p.add_argument("sources", nargs="+", help="要并掉的旧知识点，可多个")
+    p.add_argument("--to", required=True, help="目标规范名，可带 / 层级")
+    p.set_defaults(func=cmd_merge)
 
     p = sub.add_parser("ktree", help="知识点树：按 / 层级汇总掌握度")
     p.add_argument("--subject", default="")
