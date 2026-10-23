@@ -177,12 +177,13 @@ function searchTool(config) {
 function getTool(config) {
   return {
     name: 'mb_get',
-    description: '按题号读取一道错题的完整内容、错因与复习历史。',
+    description: '按题号读取一道错题的内容、错因与复习历史。默认不给正确答案与解析（reveal 默认 false），学生答完再传 reveal: true。',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         id: { type: 'integer', description: '错题 id' },
+        reveal: { type: 'boolean', description: '是否返回正确答案与解析。默认 false：出题时别让模型先看见答案，学生答完再传 true' },
         with_reviews: { type: 'boolean', description: '是否附复习历史，默认 true' },
       },
       required: ['id'],
@@ -198,8 +199,16 @@ function getTool(config) {
         '题目：' + oneLine(item.question),
       ];
       if (oneLine(item.my_answer)) lines.push('我的答案：' + oneLine(item.my_answer));
-      if (oneLine(item.answer)) lines.push('正确答案：' + oneLine(item.answer));
-      if (oneLine(item.analysis)) lines.push('解析：' + oneLine(item.analysis));
+      // v0.38：默认不泄题。以前 mb_get 永远把答案与解析吐出来，于是「让学生先答」
+      // 只能靠 SKILL.md 里的一句叮嘱，模型顺手 poll 一次就看见答案了。默认藏起来，
+      // 判分时显式传 reveal: true —— 同一件事在 v0.37 的首条消息上已经做过一次。
+      const reveal = args.reveal === true;
+      if (reveal) {
+        if (oneLine(item.answer)) lines.push('正确答案：' + oneLine(item.answer));
+        if (oneLine(item.analysis)) lines.push('解析：' + oneLine(item.analysis));
+      } else if (oneLine(item.answer) || oneLine(item.analysis)) {
+        lines.push('答案与解析：已隐藏（学生答完后 mb_get(id, reveal: true) 再看）');
+      }
       if (oneLine(item.error_reason)) lines.push('错因：' + oneLine(item.error_reason));
       lines.push('分类：' + (item.mistake_type || '未分类')
         + ' · 知识点 ' + (item.knowledge || '无')

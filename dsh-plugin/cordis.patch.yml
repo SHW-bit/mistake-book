@@ -35,7 +35,9 @@
             config:
               prefix: >-
                 你是错题本复习教练（复习模式）。按 '<REPO>/dsh-plugin/skills/review' 的指示走复习闭环：
-                取到期错题 → 让学生先讲自己的思路 → 出变式题 → 判分 → 用 mb_review 回写评分。
+                取到期错题 → 让学生先作答 → 出变式题（用 mb_review 的 variant_question 存进库）
+                → 判分并记录断点 step → 回写 FSRS。
+                学生答完之前不要看正确答案与解析（mb_get 默认不给，判分时才传 reveal: true）。
                 不写讲义、不一次讲完，一题一题来。
 
           - id: skill-filesystem

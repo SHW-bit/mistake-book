@@ -313,6 +313,49 @@ test('mb_get 列出已有变式，没有就说暂无', async () => {
   }
 });
 
+test('mb_get 默认不给答案与解析，reveal: true 才给（v0.38）', async () => {
+  const routes = {
+    '/api/mistakes/12': {
+      id: 12, question: '求极限', status: 'new',
+      answer: '机密答案', analysis: '机密解析', my_answer: '我算成 1',
+    },
+    '/api/mistakes/12/reviews': { items: [] },
+  };
+  const stub = stubFetch(routes);
+  try {
+    const { map } = tools();
+    const hidden = await map.mb_get.execute({ id: 12 });
+    assert.doesNotMatch(hidden.text, /机密答案/);
+    assert.doesNotMatch(hidden.text, /机密解析/);
+    assert.match(hidden.text, /答案与解析：已隐藏/);
+    assert.match(hidden.text, /reveal: true/);
+    // 题面与学生自己的错答照给，否则没法对着讲
+    assert.match(hidden.text, /题目：求极限/);
+    assert.match(hidden.text, /我的答案：我算成 1/);
+
+    const shown = await map.mb_get.execute({ id: 12, reveal: true });
+    assert.match(shown.text, /正确答案：机密答案/);
+    assert.match(shown.text, /解析：机密解析/);
+    assert.doesNotMatch(shown.text, /已隐藏/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_get：题面本来就没填答案时，不写那行「已隐藏」', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12': { id: 12, question: '求极限', status: 'new' },
+    '/api/mistakes/12/reviews': { items: [] },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_get.execute({ id: 12 });
+    assert.doesNotMatch(value.text, /已隐藏/);
+  } finally {
+    stub.restore();
+  }
+});
+
 test('mb_get：老服务没有变式接口时不炸，只给一句暂无', async () => {
   const stub = stubFetch({
     '/api/mistakes/12': { id: 12, question: '求极限', status: 'new' },
