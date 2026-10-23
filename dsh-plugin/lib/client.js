@@ -748,6 +748,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = useState(false);
       const [active, setActive] = useState(-1);
       const [dark, setDark] = useState(false);   // 弹层按宿主主题深浅选配色
+      const [pos, setPos] = useState(null);      // 弹层用 fixed 定位，避开滚动容器的裁剪
       const rootRef = useRef(null);
 
       const currentIndex = list.findIndex((opt) => String(opt.value) === cur);
@@ -774,6 +775,40 @@ window.__ModuleLoader__.load({
           const color = window.getComputedStyle(btn || node).color || '';
           setDark(isLightColor(color));
         } catch (err) { /* 拿不到样式就按浅色走 */ }
+      }, [open]);
+
+      // 弹层若留在滚动容器里（详情区、表单区都是 overflow:auto），靠下的下拉一展开就被裁掉。
+      // 改成 fixed + 按按钮矩形定位：下方放不下就向上翻，左右夹在视口内，滚动/缩放时重算。
+      useEffect(() => {
+        if (!open) { setPos(null); return undefined; }   // 收起时清掉旧坐标，避免下次展开闪一帧
+        if (typeof window === 'undefined' || !rootRef.current) return undefined;
+        const place = () => {
+          const node = rootRef.current;
+          const btn = node && node.querySelector ? node.querySelector('.mb-dd-btn') : null;
+          if (!btn || !btn.getBoundingClientRect) return;
+          const rect = btn.getBoundingClientRect();
+          const gap = 4;
+          const vh = window.innerHeight || 800;
+          const vw = window.innerWidth || 800;
+          const below = vh - rect.bottom - gap - 8;
+          const above = rect.top - gap - 8;
+          const openUp = below < 140 && above > below;
+          const height = Math.max(80, Math.min(240, openUp ? above : below));
+          const width = Math.max(rect.width, 120);
+          setPos({
+            top: openUp ? Math.max(8, rect.top - gap - height) : rect.bottom + gap,
+            left: Math.max(8, Math.min(rect.left, vw - width - 8)),
+            width,
+            maxHeight: height,
+          });
+        };
+        place();
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        return () => {
+          window.removeEventListener('scroll', place, true);
+          window.removeEventListener('resize', place);
+        };
       }, [open]);
 
       const pick = (opt) => {
@@ -822,7 +857,13 @@ window.__ModuleLoader__.load({
         },
           h('span.mb-dd-label', null, currentLabel),
           h('span.mb-dd-caret', { 'aria-hidden': 'true' })),
-        open ? h(dark ? 'div.mb-dd-pop.dark' : 'div.mb-dd-pop', { role: 'listbox' },
+        open ? h(dark ? 'div.mb-dd-pop.dark' : 'div.mb-dd-pop', {
+          role: 'listbox',
+          style: pos ? {
+            position: 'fixed', top: pos.top + 'px', left: pos.left + 'px',
+            minWidth: pos.width + 'px', maxHeight: pos.maxHeight + 'px',
+          } : null,
+        },
           list.length ? list.map((opt, index) => h(
             'button.mb-dd-opt' + (index === active ? '.active' : '') + (String(opt.value) === cur ? '.on' : ''),
             {

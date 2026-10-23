@@ -172,6 +172,24 @@ test('自定义下拉：按宿主文字亮度决定弹层深浅', () => {
   assert.equal(isLightColor('not-a-color'), false);
 });
 
+// 弹层在滚动容器里会被裁（详情区、表单区都是 overflow:auto），所以定位改成 fixed。
+test('自定义下拉：拿到坐标后用 fixed 定位，避开滚动容器裁剪', () => {
+  const options = [{ value: 'a', label: '甲' }, { value: 'b', label: '乙' }];
+  const opened = render(loadPlugin([true, 0, false, { top: 120, left: 36, width: 168, maxHeight: 200 }])
+    .plugin.__test__.Dropdown({ value: 'a', options, onChange: () => {} }));
+  const pop = opened.children[1];
+  assert.equal(pop.props.style.position, 'fixed');
+  assert.equal(pop.props.style.top, '120px');
+  assert.equal(pop.props.style.left, '36px');
+  assert.equal(pop.props.style.minWidth, '168px');
+  assert.equal(pop.props.style.maxHeight, '200px');
+
+  // 没有坐标（首帧 / 无 window）时退回 CSS 里的 absolute，不能崩
+  const plain = render(loadPlugin([true, 0, false, null])
+    .plugin.__test__.Dropdown({ value: 'a', options, onChange: () => {} }));
+  assert.equal(plain.children[1].props.style, null);
+});
+
 // 上面测的是「该用深色弹层吗」；这条测「弹层真的够清楚吗」——直接算 WCAG 对比度，
 // 防止以后有人把 color 改回 inherit（浅字 + 白底，对比度 1.0，肉眼就是一片白）。
 test('自定义下拉：弹层两种配色的对比度都过 WCAG AA', () => {
