@@ -31,6 +31,12 @@ window.__ModuleLoader__.load({
     const RETAIN_SOURCE = 'mistakeBook';
     /** 请宿主建会话的路由（宿主半在 lib/session.js）。 */
     const SESSION_ENDPOINT = '/api/mistake-book/session';
+    /**
+     * 数据代理路由（宿主半在 lib/proxy.js）。
+     * 面板与错题本服务不同源，app.py 又不发 CORS 头——浏览器直连 8000 会被同源策略拦掉，
+     * 所以列表 / 详情 / 评分都走这条宿主路由，真实路径放在 ?path= 里。
+     */
+    const DATA_ENDPOINT = '/api/mistake-book/data';
 
     /**
      * hyperscript：h('div.cls', props, ...kids)。
@@ -119,6 +125,11 @@ window.__ModuleLoader__.load({
         throw new Error(detail && detail.message ? detail.message : 'HTTP ' + response.status + ' ' + raw.slice(0, 200));
       }
       return body && typeof body === 'object' && 'data' in body ? body.data : body;
+    }
+
+    /** 走宿主代理读/写本机错题本服务（跨源直连会被浏览器拦掉，见 DATA_ENDPOINT 注释）。 */
+    function data(path, init) {
+      return api(DATA_ENDPOINT + '?path=' + encodeURIComponent(path), init);
     }
 
     /** 题干摘要（列表里一行两行）。 */
@@ -231,8 +242,8 @@ window.__ModuleLoader__.load({
         try {
           const query = scope === 'due' ? '?due=1&page_size=50' : '?page_size=50';
           const [nextStats, page] = await Promise.all([
-            api('/api/stats'),
-            api('/api/mistakes' + query),
+            data('/api/stats'),
+            data('/api/mistakes' + query),
           ]);
           if (!alive.current) return;
           setStats(nextStats);
@@ -259,7 +270,7 @@ window.__ModuleLoader__.load({
         let cancelled = false;
         setRevealed(false);
         setNote(null);
-        api('/api/mistakes/' + picked)
+        data('/api/mistakes/' + picked)
           .then((item) => { if (!cancelled) setDetail(item); })
           .catch((failure) => { if (!cancelled) setError(String((failure && failure.message) || failure)); });
         return () => { cancelled = true; };
@@ -271,7 +282,7 @@ window.__ModuleLoader__.load({
         setBusy(true);
         setNote(null);
         try {
-          const item = await api('/api/mistakes/' + picked + '/review', {
+          const item = await data('/api/mistakes/' + picked + '/review', {
             method: 'POST',
             body: JSON.stringify({ result }),
           });

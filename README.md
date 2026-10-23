@@ -1306,7 +1306,25 @@ dsh-plugin/
 
 **为什么组件不用 `React.createElement('div.cls')`**：`createElement` 会把 `'div.cls'` 整个当标签名，造出一个没有 class 的未知元素——CSS 一条都不生效，DOM 里却看着还在。所以文件顶部有个 20 行的 `h(sel, props, ...kids)` 自己拆 `tag.class`。
 
-### 5.17.3 建会话为什么必须走宿主
+### 5.17.3 数据为什么也要过宿主（CORS）
+
+面板跑在 DSH 的网页里（`http://127.0.0.1:<随机端口>`），错题本服务在 `http://127.0.0.1:8000` —— **两个 origin**。而 `app.py` 不发任何 CORS 头（它只服务同源的网页版），于是浏览器直连 8000 会被同源策略拦掉：GET 读不到响应体，带 `content-type: application/json` 的 POST 连预检都过不去。
+
+**给 `app.py` 加 CORS 也能通，但没这么干**：那样任何本机网页都能读走整个错题本、还能提交评分。为了一块面板把本地库敞开，不值得。所以数据也由宿主转发：
+
+```
+面板 ──fetch('/api/mistake-book/data?path=%2Fapi%2Fstats')──▶ DSH 宿主（同源）
+                                                              │ 取插件行 config.url
+                                                              ▼
+                                                        app.py :8000
+```
+
+- 路由：`GET|POST /api/mistake-book/data`，真实路径放 `?path=`（`encodeURIComponent` 过）。
+- **只放行本服务的 `/api/*` 相对路径**（`isAllowedPath`）：绝对地址、`//`、`..`、裸 `/api/` 一律 400。不做这个检查，`?path=` 就是个 SSRF 口子。
+- 上游报错包成 `502 + {code:'upstream-failed', message}`，面板把这句话原样显示。
+- 客户端只多一层 `data(path, init)`（`api(DATA_ENDPOINT + '?path=' + encodeURIComponent(path), init)`），四处调用点换成它；`SESSION_ENDPOINT` 那条仍是相对路径直呼宿主，不过代理。
+
+### 5.17.4 建会话为什么必须走宿主
 
 浏览器的 `sessions.create` 只序列化 `{ workspaceId, cwd, sessionId }`，会把 `agentPreset` **静默丢掉**。面板自己建的会话不带「错题复习」预设，工具面与 persona 全都不在——看起来能用，实际是个裸会话。
 
@@ -1327,13 +1345,14 @@ dsh-plugin/
 
 **`source` 绝不能写 `'mainView'`**：宿主的 ui-session / ui-layout 拿它判「谁是当前会话」，写错会把面板里的会话顶成主视图。
 
-### 5.17.4 文件与装配
+### 5.17.5 文件与装配
 
 `@
 dsh-plugin/
 ├── package.json          # exports: "." → plugin.js、"./tools"、"./api"、"./client"；dsh.client
-├── lib/plugin.js         # 根行宿主半：只 registerSessionRoute()
+├── lib/plugin.js         # 根行宿主半：registerSessionRoute() + registerDataRoute()
 ├── lib/session.js        # 建复习会话（五步）
+├── lib/proxy.js          # 数据代理：/api/* 转发给本机服务（跨源绕不开 CORS）
 ├── lib/client.js         # 客户端面板（两个座位 + 嵌会话）
 ├── lib/tools.js          # 6 个 mb_* 工具（阶段一）
 ├── lib/api.js            # 零依赖 HTTP 客户端 + 服务自动拉起
@@ -1346,22 +1365,25 @@ dsh-plugin/
 
 改完**重启 DSH**（补丁在启动时读，没有热重载）。
 
-### 5.17.5 验证
+### 5.17.6 验证
 
 | 层 | 怎么验 | 结果 |
 |---|---|---|
-| 宿主半（建会话） | `node --test tests/test_plugin.mjs`（假 `agentPresets` / `agents`，不建真会话） | **14 / 14** |
+| 宿主半（建会话 + 数据代理） | `node --test tests/test_plugin.mjs`（假 `agentPresets` / `agents`，不建真会话；代理用假 `globalThis.fetch` 顶掉上游） | **20 / 20** |
 | 客户端半（装载与注册） | `node --test tests/test_client.mjs`（`vm` 里造最小 `__ModuleLoader__` 与 `document`，把文件跑一遍再调 `apply`） | **4 / 4** |
 | 服务端 | `python -m unittest discover -s tests` | **132 / 132** |
+| 代理端到端 | 真起 `app.py`，用 `lib/proxy.js` 的路由打真服务（stats / 建题 / 列表 / 详情 / 评分 / 上游 404） | **7 / 7** |
 | 补丁 | `yaml` 解析 profile 的 `cordis.patch.yml`，取 `insert` 平铺后按 id 找行 | 0 error、15 个顶层块、根行与两条预设 config 完整 |
 
 客户端测试专门钉住三件只有真启动才会暴露的错：模块 `id` 等于包名、`apply` 注册的两个座位名与 `children` 表（框架靠「children 里有非 root 座位」才发 `SessionProvider`）、样式只在工厂里注入而不在文件顶层。
 
-### 5.17.6 已知限制
+### 5.17.7 已知限制
 
 - **面板只在根行加载成功时出现**：行名写成子路径、`exports["./client"]` 缺失、`dsh.client.platform` 不是 `web`，三者任一都会**静默不发现**——不报错、不提示，只是侧栏没有「错题」。
 - **建会话依赖宿主服务**：`agentPresets` / `agents` / `agentDefaultModel` 任一缺席，路由返回结构化错误（`preset-unavailable` / `session-create-failed` / `model-unavailable`），面板把这句话原样显示在按钮下面。
 - **面板不写题**：录入仍在网页 / CLI / 工具里做。面板只做「挑一道 → 看 → 评分 → 要 AI 带」。
+- **代理只放行 `/api/*`**：将来面板要下载导出文件（`/api/export.csv` 这种要落盘的），得另开一条路由，不能顺手塞进 `?path=`。
+- **上游状态码会被抹平**：代理一律回 200（成功）或 502（失败），原始 404 / 409 只出现在 message 里。面板只按「成功/失败 + 人话」处理，够用。
 - **一次只嵌一条会话**：换一道题再点「让 AI 带我复习」会新建一条；旧的仍在会话列表里，标题以 `错题复习` 开头，可据此辨认。
 
 

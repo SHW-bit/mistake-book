@@ -1,4 +1,4 @@
-// 错题本 DSH 插件 · 宿主半（lib/session.js）的单元测试。
+// 错题本 DSH 插件 · 宿主半（lib/session.js + lib/proxy.js）的单元测试。
 //
 // 这里不碰真会话、不碰网络：openReviewSession 的依赖全是从外面传进去的，
 // 用假 agentPresets / agents / sessionTitle 就能把「按预设建会话」这条链路整个走一遍。
@@ -12,6 +12,7 @@ import {
   titleForReviewSession, isReviewSessionTitle, kickoffText,
   openReviewSession, registerSessionRoute,
 } from '../dsh-plugin/lib/session.js';
+import { DATA_PATH, isAllowedPath, registerDataRoute } from '../dsh-plugin/lib/proxy.js';
 
 const ITEM = {
   id: 12,
@@ -234,4 +235,183 @@ test('路由：宿主服务缺席时请求体非法给 400，模型缺席给 503
   const body = await noPreset.json();
   assert.equal(body.ok, false);
   assert.ok(['mistake-unreadable', 'preset-unavailable'].includes(body.error.code), body.error.code);
+});
+
+/* ── 数据代理（lib/proxy.js） ───────────────────────────────────────────
+ *
+ * 面板与错题本服务不同源，app.py 不发 CORS 头，所以数据请求全走宿主代理。
+ * 这里用假的 globalThis.fetch 顶掉上游，验证「转发到哪、信封长什么样、越界路径挡不挡」。
+ */
+
+test('代理：只放行本服务的 /api/* 相对路径', () => {
+  assert.equal(isAllowedPath('/api/stats'), true);
+  assert.equal(isAllowedPath('/api/mistakes?due=1&page_size=50'), true);
+  assert.equal(isAllowedPath('/api/mistakes/12/review'), true);
+
+  // 跳出 /api、绝对地址、目录穿越、协议相对、空值 —— 一律挡掉（否则就是 SSRF 口子）
+  assert.equal(isAllowedPath('/etc/passwd'), false);
+  assert.equal(isAllowedPath('http://evil.example/api/x'), false);
+  assert.equal(isAllowedPath('/api/../secret'), false);
+  assert.equal(isAllowedPath('//evil.example/api/x'), false);
+  assert.equal(isAllowedPath('/api//x'), false);
+  assert.equal(isAllowedPath('/api/'), false);
+  assert.equal(isAllowedPath(''), false);
+  assert.equal(isAllowedPath(null), false);
+});
+
+test('代理路由：路径、方法、请求体模式对得上', () => {
+  let registered = null;
+  const ctx = {
+    inject(services, cb) {
+      assert.deepEqual(services, ['connection']);
+      cb({
+        connection: { fetch: { register: (route) => { registered = route; } } },
+        effect: (fn) => fn(),
+        get: () => null,
+      });
+    },
+  };
+  registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+  assert.ok(registered);
+  assert.equal(registered.path, DATA_PATH);
+  assert.deepEqual(registered.methods, ['GET', 'POST']);
+  assert.equal(registered.requestBody, 'buffered');
+});
+
+/** 顶掉上游：健康探测一律通，其余交给 handler；返回记录到的调用。 */
+function stubUpstream(handler) {
+  const original = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    const text = String(url);
+    seen.push({ url: text, init });
+    if (text.endsWith('/api/health')) return new Response('{"ok":true}', { status: 200 });
+    return handler(text, init);
+  };
+  return { seen, restore: () => { globalThis.fetch = original; } };
+}
+
+test('代理路由：GET 转发到本机服务，拆掉信封后重新包一层', async () => {
+  const stub = stubUpstream(async () => Response.json({
+    ok: true, data: { total: 7, due: 3 },
+  }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?path='
+      + encodeURIComponent('/api/stats'));
+    const response = await registered.fetch(request);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    // 客户端按 {ok,data} 拆——与直连 app.py 时同一个形状
+    assert.deepEqual(body, { ok: true, data: { total: 7, due: 3 } });
+
+    const upstream = stub.seen.find((c) => !c.url.endsWith('/api/health'));
+    assert.equal(upstream.url, 'http://127.0.0.1:8000/api/stats');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('代理路由：POST 把请求体原样带给上游（评分就靠这条）', async () => {
+  const stub = stubUpstream(async () => Response.json({
+    ok: true, data: { id: 12, next_review_at: '2026-10-24T09:00:00' },
+  }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?path='
+      + encodeURIComponent('/api/mistakes/12/review'), {
+      method: 'POST',
+      body: JSON.stringify({ result: 'good' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const response = await registered.fetch(request);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.data.next_review_at, '2026-10-24T09:00:00');
+
+    const upstream = stub.seen.find((c) => !c.url.endsWith('/api/health'));
+    assert.equal(upstream.url, 'http://127.0.0.1:8000/api/mistakes/12/review');
+    assert.equal(upstream.init.method, 'POST');
+    assert.equal(upstream.init.body, JSON.stringify({ result: 'good' }));
+  } finally {
+    stub.restore();
+  }
+});
+
+test('代理路由：越界路径给 400，且一次上游都没打', async () => {
+  const stub = stubUpstream(async () => Response.json({ ok: true, data: null }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?path='
+      + encodeURIComponent('http://evil.example/api/x'));
+    const response = await registered.fetch(request);
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'path-invalid');
+    assert.equal(stub.seen.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('代理路由：上游挂了给 502，把原因带回去', async () => {
+  const stub = stubUpstream(async () => new Response('boom', { status: 500 }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?path='
+      + encodeURIComponent('/api/stats'));
+    const response = await registered.fetch(request);
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'upstream-failed');
+    assert.ok(body.error.message.includes('500'), body.error.message);
+  } finally {
+    stub.restore();
+  }
 });
