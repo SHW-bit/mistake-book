@@ -179,6 +179,20 @@ window.__ModuleLoader__.load({
       '.mb-fb.me .mb-field>span{color:color-mix(in srgb,var(--mb-warn) 60%,currentColor)}',
       '.mb-fb textarea{background:var(--mb-surface);border-color:transparent}',
       '.mb-fb textarea:focus{border-color:var(--mb-accent)}',
+      '.mb-fbhead{display:flex;align-items:center;gap:8px;margin-bottom:5px;min-width:0}',
+      '.mb-fblabel{font-size:12px;font-weight:600;color:var(--mb-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.mb-fbact{margin-left:auto;flex:none;height:22px;padding:0 8px;border-radius:6px;border:1px solid var(--mb-line);background:var(--mb-surface);color:var(--mb-dim);font-size:11.5px;line-height:20px;cursor:pointer}',
+      '.mb-fbact:hover{border-color:var(--mb-accent);color:var(--mb-accent)}',
+      '.mb-fbtip{flex:none;font-size:10.5px;color:var(--mb-faint);white-space:nowrap}',
+      '.mb-fb.over{outline:2px dashed var(--mb-accent);outline-offset:2px}',
+      '.mb-fbimgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}',
+      '.mb-fbthumb{position:relative;width:56px;height:56px;border-radius:8px;overflow:hidden;border:1px solid var(--mb-line);background:var(--mb-subtle)}',
+      '.mb-fbthumb img{width:100%;height:100%;object-fit:cover;display:block}',
+      '.mb-fbthumb button{position:absolute;top:1px;right:1px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:16px;cursor:pointer}',
+      '.mb-fb textarea{font-size:13.5px;line-height:1.62;min-height:88px;resize:vertical}',
+      '.mb-dlg-wide{max-width:860px;width:calc(100vw - 32px)}',
+      '.mb-dlg-wide .mb-form{padding:0;max-width:none;overflow:visible}',
+      '@media (max-width:520px){.mb-fbtip{display:none}}',
       '.mb-drop{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:7px;padding:10px 8px;border-radius:9px;border:1.5px dashed var(--mb-line-strong);background:var(--mb-surface);color:var(--mb-faint);font-size:11px;text-align:center;cursor:pointer;transition:border-color .12s,background .12s,color .12s}',
       '.mb-drop:hover,.mb-drop.over,.mb-drop:focus-visible{border-color:var(--mb-accent);background:color-mix(in srgb,var(--mb-accent) 7%,var(--mb-surface));color:var(--mb-accent);outline:0}',
       '.mb-drop b{font-weight:600;font-size:12px;color:var(--mb-dim)}',
@@ -600,26 +614,38 @@ window.__ModuleLoader__.load({
       const { meta, initial, onSave, onCancel, busy, error, submitLabel } = props;
       const [form, setForm] = useState(() => emptyForm(initial));
       const [images, setImages] = useState(() => (initial && Array.isArray(initial.images)
-        ? initial.images.map((img) => ({ src: img.url, file: img.file })) : []));
+        ? initial.images.map((img) => ({ src: img.url, file: img.file, field: img.field || 'question' })) : []));
       const [dirty, setDirty] = useState(false);
       const [imgError, setImgError] = useState('');
       const fileRef = useRef(null);
-      const dropRef = useRef(null);
+      const activeField = useRef('question');
+      const fileField = useRef('question');
 
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
       const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
 
-      const addFile = useCallback((file) => {
+      const MAX_PER_FIELD = 4;
+      const MAX_TOTAL = 6;
+      const fieldOf = (img) => (img && img.field) || 'question';
+
+      const addFile = (file, field) => {
         if (!file || !/^image\//.test(String(file.type || ''))) return;
         if (file.size > 2 * 1024 * 1024) { setImgError('图片要小于 2MB'); return; }
+        const target = field || 'question';
+        if (images.filter((img) => fieldOf(img) === target).length >= MAX_PER_FIELD) {
+          setImgError('每块最多 ' + MAX_PER_FIELD + ' 张图');
+          return;
+        }
+        if (images.length >= MAX_TOTAL) { setImgError('一道题最多 ' + MAX_TOTAL + ' 张图'); return; }
         const reader = new FileReader();
         reader.onload = () => {
-          setImages((current) => current.concat([{ src: String(reader.result), data: String(reader.result) }]));
+          const src = String(reader.result);
+          setImages((current) => current.concat([{ src, data: src, field: target }]));
           setDirty(true);
           setImgError('');
         };
         reader.readAsDataURL(file);
-      }, []);
+      };
 
       useEffect(() => {
         if (typeof document === 'undefined') return undefined;
@@ -628,7 +654,7 @@ window.__ModuleLoader__.load({
           if (!items) return;
           for (let i = 0; i < items.length; i += 1) {
             if (String(items[i].type || '').indexOf('image/') === 0) {
-              addFile(items[i].getAsFile());
+              addFile(items[i].getAsFile(), activeField.current);
               event.preventDefault();
               break;
             }
@@ -638,75 +664,83 @@ window.__ModuleLoader__.load({
         return () => document.removeEventListener('paste', onPaste);
       }, [addFile]);
 
-      const removeImage = (index) => {
-        setImages(images.filter((img, i) => i !== index));
+      const removeImage = (target) => {
+        setImages(images.filter((img) => img !== target));
         setDirty(true);
+      };
+
+      const pickFiles = (list, field) => {
+        Array.prototype.slice.call(list || []).forEach((file) => addFile(file, field));
+      };
+
+      const pickFor = (field) => {
+        fileField.current = field;
+        if (fileRef.current) fileRef.current.click();
       };
 
       const submit = () => {
         if (!String(form.question).trim()) return;
         const body = Object.assign({}, form, { difficulty: Number(form.difficulty) || 3 });
-        if (dirty) body.images = images.map((img) => img.data || img.file);
+        if (dirty) {
+          body.images = images.map((img) => (img.data
+            ? { data: img.data, field: fieldOf(img) }
+            : { file: img.file, field: fieldOf(img) }));
+        }
         onSave(body);
       };
 
       const choices = (id, values) => h('datalist', { id },
         (values || []).map((value) => h('option', { key: value, value })));
 
-      const pickFiles = (list) => {
-        Array.prototype.slice.call(list || []).forEach((file) => addFile(file));
-      };
-
-      const dropHandlers = {
-        onDragOver: (event) => {
-          event.preventDefault();
-          if (dropRef.current) dropRef.current.classList.add('over');
-        },
-        onDragLeave: () => {
-          if (dropRef.current) dropRef.current.classList.remove('over');
-        },
+      const blockProps = (field) => ({
+        onFocus: () => { activeField.current = field; },
+        onDragOver: (event) => { event.preventDefault(); event.currentTarget.classList.add('over'); },
+        onDragLeave: (event) => { event.currentTarget.classList.remove('over'); },
         onDrop: (event) => {
           event.preventDefault();
-          if (dropRef.current) dropRef.current.classList.remove('over');
-          pickFiles(event.dataTransfer && event.dataTransfer.files);
+          event.currentTarget.classList.remove('over');
+          pickFiles(event.dataTransfer && event.dataTransfer.files, field);
         },
+      });
+
+      const strip = (field) => {
+        const list = images.filter((img) => fieldOf(img) === field);
+        if (!list.length) return null;
+        return h('div.mb-fbimgs', null, list.map((img) => h('div.mb-fbthumb', {
+          key: String(img.file || img.src || '').slice(-28) + ':' + field,
+        },
+        h('img', { src: img.src, alt: '附图' }),
+        h('button', { type: 'button', onClick: () => removeImage(img), 'aria-label': '移除这张图' }, '×'))));
       };
+
+      const head = (field, label) => h('div.mb-fbhead', null,
+        h('span.mb-fblabel', null, label),
+        h('button.mb-fbact', { type: 'button', title: '导入图片（也可拖入或 Ctrl+V 粘贴）', onClick: () => pickFor(field) }, '＋ 图片'),
+        h('span.mb-fbtip', null, '拖入 · Ctrl+V'));
 
       return h('div.mb-form.mb-form2', null,
         h('div.mb-fmain', null,
-          h('div.mb-fb.top', null,
-            h('div.mb-field', null, h('span', null, '题目（必填）'),
-              h('textarea', { value: form.question, onChange: set('question'), rows: 4, placeholder: '粘贴题干…（截图可直接 Ctrl+V）' })),
-            h('div.mb-drop', Object.assign({
-              ref: dropRef, role: 'button', tabIndex: 0, title: '导入图片',
-              onClick: () => { if (fileRef.current) fileRef.current.click(); },
-              onKeyDown: (event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  if (fileRef.current) fileRef.current.click();
-                }
-              },
-            }, dropHandlers),
-              h('b', null, '导入图片'),
-              h('small', null, '拖入文件 · 点击选择 · 截图后 Ctrl+V 粘贴'),
-              h('small', null, '可一次多张，每张 ≤2MB')),
-            h('input', {
-              ref: fileRef, type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' },
-              onChange: (event) => { pickFiles(event.target.files); event.target.value = ''; },
-            }),
-            imgError ? h('div.mb-note.bad', null, imgError) : null,
-            images.length ? h('div.mb-imgs', null, images.map((img, index) => h('div.mb-thumb', { key: index },
-              h('img', { src: img.src, alt: '题目图片 ' + (index + 1) }),
-              h('button', { type: 'button', onClick: () => removeImage(index), 'aria-label': '移除这张图' }, '×')))) : null),
-          h('div.mb-fb.me', null,
-            h('div.mb-field', null, h('span', null, '我的错误答案'),
-              h('textarea', { value: form.my_answer, onChange: set('my_answer'), rows: 3, placeholder: '当时是怎么想的…' }))),
-          h('div.mb-fb.ok', null,
-            h('div.mb-field', null, h('span', null, '正确答案'),
-              h('textarea', { value: form.answer, onChange: set('answer'), rows: 3, placeholder: '标准答案…' }))),
-          h('div.mb-fb', null,
-            h('div.mb-field', null, h('span', null, '解析'),
-              h('textarea', { value: form.analysis, onChange: set('analysis'), rows: 3, placeholder: '关键步骤、易错点…' })))),
+          h('div.mb-fb.top', blockProps('question'),
+            head('question', '题目（必填）'),
+            h('textarea', { value: form.question, onChange: set('question'), rows: 6, placeholder: '粘贴题干…（截图可直接 Ctrl+V）' }),
+            strip('question')),
+          h('div.mb-fb.me', blockProps('wrong'),
+            head('wrong', '我的错误答案'),
+            h('textarea', { value: form.my_answer, onChange: set('my_answer'), rows: 5, placeholder: '当时是怎么想的…' }),
+            strip('wrong')),
+          h('div.mb-fb.ok', blockProps('answer'),
+            head('answer', '正确答案'),
+            h('textarea', { value: form.answer, onChange: set('answer'), rows: 5, placeholder: '标准答案…' }),
+            strip('answer')),
+          h('div.mb-fb', blockProps('analysis'),
+            head('analysis', '解析'),
+            h('textarea', { value: form.analysis, onChange: set('analysis'), rows: 5, placeholder: '关键步骤、易错点…' }),
+            strip('analysis')),
+          imgError ? h('div.mb-note.bad', null, imgError) : null,
+          h('input', {
+            ref: fileRef, type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' },
+            onChange: (event) => { pickFiles(event.target.files, fileField.current); event.target.value = ''; },
+          })),
         h('div.mb-fside', null,
           h('div.mb-field', null, h('span', null, '学科'),
             h('input', { value: form.subject, onChange: set('subject'), list: 'mb-dl-subject' }),
@@ -2155,10 +2189,13 @@ window.__ModuleLoader__.load({
         tab === 'list' ? h('div.mb-split', null,
           h(ListTab, { meta, onOpen: open, pickedId: detailId, onStats: setStats, reloadKey, initialScope: 'all' }),
           h('div.mb-right', null,
-            creating ? h(ItemForm, {
-              key: 'new', meta, initial: null, onSave: create,
-              onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
-            }) :
+            creating ? h('div.mb-mask', { onClick: () => { if (!formBusy) setCreating(false); } },
+              h('div.mb-dlg.mb-dlg-wide', { onClick: (e) => e.stopPropagation() },
+                h('h3', null, '新建错题'),
+                h(ItemForm, {
+                  key: 'new', meta, initial: null, onSave: create,
+                  onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
+                }))) :
               detailId ? h(DetailPane, {
                 key: detailId + ':' + detailMode,
                 id: detailId, mode: detailMode, meta,

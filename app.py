@@ -58,6 +58,8 @@ DEDUP_WINDOW_SEC = 3                       # 防双击重复提交
 MAX_BODY = 4 * 1024 * 1024                 # 请求体上限 4MB（含图片 Data URL）
 MAX_IMAGE_CHARS = 2_800_000                # 单张 Data URL 字符上限，约 2MB 图片
 MAX_IMAGES = 6                             # 一道题最多几张图（几何题两三张够用，再多是误操作）
+IMAGE_FIELDS = ("question", "wrong", "answer", "analysis")   # v0.30：图片归属哪一块
+MAX_IMAGES_PER_FIELD = 4                   # 单块最多几张
 # v0.15：图片从 base64 存库改成落盘（内容寻址），库里只留文件名。
 # 好处：数据库不再被图片撑大，备份/导出/列表都快；文件按 sha256 命名，天然去重。
 IMAGE_DIR_NAME = "images"                  # 与数据库文件同级的 images/ 目录
@@ -209,7 +211,8 @@ CREATE TABLE IF NOT EXISTS mistake_images (
     mistake_id INTEGER NOT NULL,
     file       TEXT    NOT NULL,
     sort       INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT    NOT NULL
+    created_at TEXT    NOT NULL,
+    field      TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mimages_mid ON mistake_images(mistake_id, sort, id);
 -- v0.20：试卷维度。一次月考/周测是一张卷，题目用 mistakes.paper_id 归属。
@@ -227,6 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_papers_date ON papers(exam_date DESC, id DESC);
 
 # 老库升级：新增列时补 ALTER，不丢数据。元组: (表, 列, DDL)
 MIGRATIONS = (
+    ("mistake_images", "field", "TEXT NOT NULL DEFAULT ''"),
     ("mistakes", "analysis", "TEXT NOT NULL DEFAULT ''"),
     ("mistakes", "mistake_type", "TEXT NOT NULL DEFAULT ''"),
     ("mistakes", "source", "TEXT NOT NULL DEFAULT ''"),
@@ -444,23 +448,29 @@ def migrate_image_table(conn: sqlite3.Connection) -> int:
 def images_of(conn: sqlite3.Connection, mid: int) -> list:
     """一道题的全部图片，按 sort 排序。老记录没有子表行时回落到 image_file。"""
     rows = conn.execute(
-        "SELECT file FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id", (mid,)).fetchall()
-    files = [r["file"] for r in rows]
-    if not files:
+        "SELECT file, field FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id", (mid,)).fetchall()
+    pairs = [(r["file"], r["field"] or "") for r in rows]
+    if not pairs:
         legacy = conn.execute("SELECT image_file FROM mistakes WHERE id = ?", (mid,)).fetchone()
         if legacy is not None and legacy["image_file"]:
-            files = [legacy["image_file"]]
-    return [{"file": name, "url": image_url(name)} for name in files]
+            pairs = [(legacy["image_file"], "")]
+    return [{"file": name, "url": image_url(name), "field": field} for name, field in pairs]
 
 
 def _set_images(conn: sqlite3.Connection, mid: int, files) -> None:
-    """整组替换某道题的图片行（调用方负责提交事务）。"""
+    """整组替换某道题的图片行（调用方负责提交事务）。元素是 {file, field} 或纯文件名。"""
     conn.execute("DELETE FROM mistake_images WHERE mistake_id = ?", (mid,))
     now = now_str()
-    for index, name in enumerate(files):
+    for index, entry in enumerate(files):
+        if isinstance(entry, dict):
+            name, field = entry.get("file", ""), entry.get("field") or ""
+        else:
+            name, field = entry, ""
+        if not name:
+            continue
         conn.execute(
-            "INSERT INTO mistake_images (mistake_id, file, sort, created_at) VALUES (?,?,?,?)",
-            (mid, name, index, now))
+            "INSERT INTO mistake_images (mistake_id, file, sort, created_at, field) VALUES (?,?,?,?,?)",
+            (mid, name, index, now, field))
 
 
 def _apply_images(conn: sqlite3.Connection, data: dict, base_files) -> list:
@@ -472,13 +482,19 @@ def _apply_images(conn: sqlite3.Connection, data: dict, base_files) -> list:
     changed = data.pop("images_changed", False)
     raw = data.pop("images", None)
     if not changed:
-        return list(base_files or [])
+        return [dict(entry) if isinstance(entry, dict) else {"file": entry, "field": ""}
+                for entry in (base_files or [])]
     files = []
     for entry in (raw or []):
-        if entry.startswith("data:image/"):
-            files.append(save_image(entry, conn))
+        if isinstance(entry, dict):
+            value, field = entry.get("value", ""), entry.get("field") or ""
         else:
-            files.append(entry)
+            value, field = entry, ""
+        if not value:
+            continue
+        name = save_image(value, conn) if value.startswith("data:image/") else value
+        if name:
+            files.append({"file": name, "field": field})
     return files
 
 
@@ -597,6 +613,13 @@ def normalize(body: dict, base: dict | None = None) -> dict:
             raise ValidationError("图片最多 %d 张" % MAX_IMAGES)
         cleaned = []
         for entry in raw_images:
+            field = "question"      # 没写 field 的老客户端/CLI：图当作题目图
+            if isinstance(entry, dict):
+                raw_field = entry.get("field")
+                field = "question" if raw_field is None else str(raw_field).strip()
+                entry = entry.get("data") or entry.get("file")
+                if not isinstance(entry, str):
+                    raise ValidationError("images 的元素必须是字符串或 {data|file, field}")
             if not isinstance(entry, str):
                 raise ValidationError("images 的元素必须是字符串")
             entry = entry.strip()
@@ -607,7 +630,7 @@ def normalize(body: dict, base: dict | None = None) -> dict:
                     raise ValidationError("单张图片过大（上限约 2MB）")
             elif not IMAGE_NAME_RE.match(entry):
                 raise ValidationError("图片标识不合法: %s" % entry[:40])
-            cleaned.append(entry)
+            cleaned.append({"value": entry, "field": field if field in IMAGE_FIELDS else ""})
         raw_images = cleaned
 
     paper_id = body["paper_id"] if "paper_id" in body else base.get("paper_id", 0)
@@ -657,7 +680,7 @@ def create_mistake(conn: sqlite3.Connection, body: dict) -> dict:
     data["knowledge"] = resolve_knowledge(conn, data["knowledge"])
     data["paper_id"] = _check_paper(conn, data["paper_id"])
     files = _apply_images(conn, data, [])
-    data["image_file"] = files[0] if files else ""
+    data["image_file"] = files[0]["file"] if files else ""
     dup = _find_recent_duplicate(conn, data["question"])
     if dup is not None:
         item = get_mistake(conn, dup["id"])
@@ -811,12 +834,12 @@ def update_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
     data = normalize(body, base=dict(row))
     data["knowledge"] = resolve_knowledge(conn, data["knowledge"])
     data["paper_id"] = _check_paper(conn, data["paper_id"])
-    base_files = [r["file"] for r in conn.execute(
-        "SELECT file FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id", (mid,)).fetchall()]
+    base_files = [{"file": r["file"], "field": r["field"] or ""} for r in conn.execute(
+        "SELECT file, field FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id", (mid,)).fetchall()]
     if not base_files and row["image_file"]:
-        base_files = [row["image_file"]]
+        base_files = [{"file": row["image_file"], "field": ""}]
     files = _apply_images(conn, data, base_files)
-    data["image_file"] = files[0] if files else ""
+    data["image_file"] = files[0]["file"] if files else ""
     conn.execute(
         "UPDATE mistakes SET subject=?, question=?, answer=?, analysis=?, my_answer=?, error_reason=?, "
         "mistake_type=?, source=?, knowledge=?, tags=?, difficulty=?, status=?, image_file=?, "

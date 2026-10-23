@@ -1758,6 +1758,33 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(item["images"]), 2)
         self.assertEqual(item["images"][0]["file"], item["images"][1]["file"])
 
+    def test_images_carry_field_per_block(self):
+        # v0.30：每张图归属一个文本块（question/wrong/answer/analysis）
+        item = self.create(question="分块图", images=[
+            {"data": PNG_A, "field": "answer"},
+            {"data": PNG_B, "field": "analysis"},
+            {"data": PNG_C},
+        ])
+        self.assertEqual([i["field"] for i in item["images"]], ["answer", "analysis", "question"])
+
+    def test_images_field_survives_update(self):
+        item = self.create(question="分块图保留", images=[{"data": PNG_A, "field": "wrong"}])
+        first = item["images"][0]["file"]
+        # 只改题干、不改图：field 要原样保留
+        status, body = self.call("PUT", "/api/mistakes/%d" % item["id"], {"question": "改题干"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual([(i["file"], i["field"]) for i in body["data"]["images"]],
+                         [(first, "wrong")])
+        # 传文件名 + field 改归属
+        status, body = self.call("PUT", "/api/mistakes/%d" % item["id"],
+                                 {"images": [{"file": first, "field": "analysis"}]})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["data"]["images"][0]["field"], "analysis")
+
+    def test_images_unknown_field_is_dropped(self):
+        item = self.create(question="野字段", images=[{"data": PNG_A, "field": "bogus"}])
+        self.assertEqual(item["images"][0]["field"], "")
+
     def test_multi_images_update_replace_and_clear(self):
         item = self.create(question="换图", images=[PNG_A, PNG_B])
         first = item["images"][0]["file"]

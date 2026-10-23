@@ -98,30 +98,44 @@ const field = (label, control) => '<div class="mb-field"><span>' + label + '</sp
 const input = (ph) => '<input placeholder="' + (ph || '') + '">';
 const sel = (txt) => '<select><option>' + txt + '</option></select>';
 
+const THUMB = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="56" height="56" fill="#dde3f5"/></svg>');
+
 const formHtml = [
   '<div class="mb-form mb-form2">',
   '  <div class="mb-fmain">',
-  '    <div class="mb-fb top">',
-  '      ' + field('题目（必填）', '<textarea rows="4" placeholder="粘贴题干…（截图可直接 Ctrl+V）"></textarea>'),
-  '      <div class="mb-drop"><b>导入图片</b><small>拖入文件 · 点击选择 · 截图后 Ctrl+V 粘贴</small><small>可一次多张，每张 ≤2MB</small></div>',
+  '  <div class="mb-fb top">',
+  '    <div class="mb-fbhead"><span class="mb-fblabel">题目（必填）</span><button class="mb-fbact" type="button">＋ 图片</button><span class="mb-fbtip">拖入 · Ctrl+V</span></div>',
+  '    <textarea rows="6" placeholder="粘贴题干…（截图可直接 Ctrl+V）"></textarea>',
+  '  </div>',
+  '  <div class="mb-fb me">',
+  '    <div class="mb-fbhead"><span class="mb-fblabel">我的错误答案</span><button class="mb-fbact" type="button">＋ 图片</button><span class="mb-fbtip">拖入 · Ctrl+V</span></div>',
+  '    <textarea rows="5" placeholder="当时是怎么想的…"></textarea>',
+  '  </div>',
+  '  <div class="mb-fb ok">',
+  '    <div class="mb-fbhead"><span class="mb-fblabel">正确答案</span><button class="mb-fbact" type="button">＋ 图片</button><span class="mb-fbtip">拖入 · Ctrl+V</span></div>',
+  '    <textarea rows="5" placeholder="标准答案…"></textarea>',
+  '    <div class="mb-fbimgs">',
+  '      <div class="mb-fbthumb"><img src="' + THUMB + '" alt="附图"><button type="button">×</button></div>',
+  '      <div class="mb-fbthumb"><img src="' + THUMB + '" alt="附图"><button type="button">×</button></div>',
   '    </div>',
-  '    <div class="mb-fb me">' + field('我的错误答案', '<textarea rows="3" placeholder="当时是怎么想的…"></textarea>') + '</div>',
-  '    <div class="mb-fb ok">' + field('正确答案', '<textarea rows="3" placeholder="标准答案…"></textarea>') + '</div>',
-  '    <div class="mb-fb">' + field('解析', '<textarea rows="3" placeholder="关键步骤、易错点…"></textarea>') + '</div>',
+  '  </div>',
+  '  <div class="mb-fb">',
+  '    <div class="mb-fbhead"><span class="mb-fblabel">解析</span><button class="mb-fbact" type="button">＋ 图片</button><span class="mb-fbtip">拖入 · Ctrl+V</span></div>',
+  '    <textarea rows="5" placeholder="关键步骤、易错点…"></textarea>',
+  '  </div>',
   '  </div>',
   '  <div class="mb-fside">',
-  '    ' + field('学科', input('高数')),
-  '    ' + field('知识点', input('极限')),
-  '    ' + field('错因分类', sel('概念不清')),
-  '    ' + field('来源', input('作业')),
-  '    ' + field('标签（逗号分隔）', input('极限,洛必达')),
-  '    ' + field('难度', sel('3 星')),
-  '    ' + field('状态', sel('未复习')),
-  '    ' + field('错因详细描述', input('')),
+  '    <label class="mb-field"><span>学科</span><input value="数学"></label>',
+  '    <label class="mb-field"><span>知识点</span><input value="导数"></label>',
+  '    <label class="mb-field"><span>错因分类</span><input value="概念不清"></label>',
+  '    <label class="mb-field"><span>来源</span><input value="月考"></label>',
+  '    <label class="mb-field"><span>标签（逗号分隔）</span><input value="极值"></label>',
+  '    <label class="mb-field"><span>难度</span><input value="3"></label>',
+  '    <label class="mb-field"><span>状态</span><input value="待复习"></label>',
+  '    <label class="mb-field"><span>错因详细描述</span><textarea rows="3"></textarea></label>',
   '  </div>',
-  '  <div class="mb-formfoot" style="grid-column:1/-1"><button class="mb-btn primary">保存</button><button class="mb-btn">取消</button></div>',
-  '</div>',
-].join('\n');
+  '  <div class="mb-formfoot"><button class="mb-btn primary">保存</button><button class="mb-btn">取消</button></div>',
+  '</div>',].join('\n');
 
 const formPage = (w, css, isDark) => '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n<title>form ' + w + '</title>\n<style>\n'
   + 'html,body{margin:0;height:100%;background:' + (isDark ? '#1b1d21' : '#f4f4f2') + ';color:' + (isDark ? '#ecedf0' : '#1c1c19') + ';font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}\n'

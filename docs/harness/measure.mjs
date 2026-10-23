@@ -49,6 +49,8 @@ const EXPR = `(() => {
     dropBorder: cs('.mb-drop', 'borderStyle'),
     fbOk: cs('.mb-fb.ok', 'backgroundColor'),
     fbMe: cs('.mb-fb.me', 'backgroundColor'),
+    fbact: rect('.mb-fbact'),
+    fbimgs: rect('.mb-fbimgs'),
     formCols: form ? getComputedStyle(form).gridTemplateColumns : null,
     formH: form ? Math.round(form.getBoundingClientRect().height) : null,
     chips: rect('.mb-chips'),

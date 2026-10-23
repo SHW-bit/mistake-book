@@ -377,6 +377,25 @@ test('新建表单：字段齐全，保存与取消都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-form/);
 });
 
+// v0.30：四个文本块各带一个紧凑图片按钮，独立拖拽区已移除
+test('录入表单：四块各有一个紧凑图片按钮，没有独立拖拽区', () => {
+  const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const classes = classesOf(dom);
+  const blocks = classes.filter((c) => /(^|\s)mb-fb(\s|$)/.test(c));
+  assert.equal(blocks.length, 4, '四块：题目 / 我的错误答案 / 正确答案 / 解析');
+  assert.equal(classes.filter((c) => /(^|\s)mb-fbact(\s|$)/.test(c)).length, 4, '每块一个图片按钮');
+  assert.equal(nodesOf(dom, 'textarea').length, 4, '四块都是 textarea');
+  assert.equal(textOf(dom).filter((x) => x === '＋ 图片').length, 4);
+  assert.ok(!classes.some((c) => /mb-drop|mb-imgs|mb-thumb/.test(c)), '旧的独立拖拽区与缩略图容器应已移除');
+  const source = fs.readFileSync(CLIENT, 'utf8');
+  assert.ok(source.includes("h('div.mb-mask'") && source.includes("'新建错题'")
+    && source.includes('mb-dlg-wide'), '新建走独立浮层（mb-mask + mb-dlg-wide）');
+});
+
 // AnalyticsView 的 hooks 顺序：days, report, error
 test('分析视图：趋势、保持度分桶、薄弱知识点、错因/学科/断点分布', () => {
   const report = {
