@@ -161,6 +161,31 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["status"], "ok")
 
+    # -- 面板资产（v0.25：KaTeX 经 /api/asset 供给面板） --
+    def test_asset_serves_katex(self):
+        url = self.base + "/api/asset?path=" + urllib.parse.quote("/vendor/katex/katex.min.js")
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertIn("text/javascript", resp.headers.get("Content-Type"))
+            self.assertIn("max-age", resp.headers.get("Cache-Control"))
+            body = resp.read()
+        self.assertGreater(len(body), 100000)
+        self.assertIn(b"katex", body[:5000].lower())
+
+    def test_asset_serves_css(self):
+        url = self.base + "/api/asset?path=" + urllib.parse.quote("/vendor/katex/katex.min.css")
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            self.assertIn("text/css", resp.headers.get("Content-Type"))
+            body = resp.read().decode("utf-8")
+        self.assertIn("@font-face", body)
+
+    def test_asset_rejects_escape_and_missing(self):
+        for bad in ["/vendor/katex/../index.html", "/vendor/katex/../../app.py",
+                    "/vendor/katex/nope.js", "/app.py", "/vendor/", ""]:
+            status, body = self.call("GET", "/api/asset?path=" + urllib.parse.quote(bad))
+            self.assertEqual(status, 404, bad)
+            self.assertEqual(body["error"]["code"], "NOT_FOUND", bad)
+
     def test_static_index(self):
         with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")

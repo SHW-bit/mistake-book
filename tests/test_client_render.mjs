@@ -567,3 +567,17 @@ test('批量导入：导入后不自动关窗，逐条列出结果', () => {
   assert.match(text, /继续导入/);
   assert.match(text, /完成/);
 });
+
+// MathText 的 hooks 顺序：useKatex（useState + useEffect）、stamp=useRef('')、useEffect。
+// 测试环境里 KaTeX 永远加载不到（head.appendChild 是空操作），所以必须原样显示文本：
+// 公式渲染是增强，不能变成「渲染器没到位就白屏」。
+test('公式块：渲染器未就绪时原样显示文本，class 可覆盖', () => {
+  const { plugin } = loadPlugin();
+  const raw = '求 $\\lim_{x\\to0}\\frac{\\sin x}{x}$ 的值';
+  const dom = render(plugin.__test__.MathText({ text: raw }));
+  assert.equal(textOf(dom).join(''), raw);
+  assert.equal(dom.props.className, 'mb-text');
+  const styled = render(plugin.__test__.MathText({ text: '纯文本', className: 'mb-q', style: { flex: '1' } }));
+  assert.equal(styled.props.className, 'mb-q');
+  assert.deepEqual(styled.props.style, { flex: '1' });
+});

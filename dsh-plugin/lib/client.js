@@ -240,6 +240,115 @@ window.__ModuleLoader__.load({
       return String((failure && failure.message) || failure);
     }
 
+    /* ── 公式渲染（KaTeX，按需加载） ───────────────────────────────────── */
+
+    // 面板跑在 DSH 的 origin 里，KaTeX 在错题本服务里。跨源直接 <script src> 会被同源策略拦掉，
+    // 所以经宿主代理的 ?raw=1 取回：浏览器只跟自己的 origin 说话，app.py 不用加 CORS，
+    // 宿主半（lib/proxy.js，改完要重启 DSH）也不用加路由——只加了 app.py 的 /api/asset。
+    const KATEX_ASSET = '/vendor/katex/katex.min.js';
+    let katexState = 0;   // 0 未开始 / 1 加载中 / 2 就绪 / 3 失败
+    const katexWaiters = new Set();
+
+    function katexUrl() {
+      return DATA_ENDPOINT + '?raw=1&path=' + encodeURIComponent('/api/asset?path=' + KATEX_ASSET);
+    }
+
+    function ensureKatex() {
+      if (katexState) return;
+      if (typeof document === 'undefined' || !document.createElement || !document.head) { katexState = 3; return; }
+      katexState = 1;
+      const script = document.createElement('script');
+      script.src = katexUrl();
+      script.async = true;
+      const settle = (ok) => {
+        katexState = ok && typeof window !== 'undefined' && window.katex ? 2 : 3;
+        katexWaiters.forEach((notify) => notify(katexState));
+        katexWaiters.clear();
+      };
+      script.onload = () => settle(true);
+      script.onerror = () => settle(false);
+      document.head.appendChild(script);
+    }
+
+    /** 订阅 KaTeX 就绪：没就绪先显示原文，加载完自动重渲染一次。 */
+    function useKatex() {
+      const [state, setState] = useState(katexState);
+      useEffect(() => {
+        ensureKatex();
+        if (katexState === 2 || katexState === 3) { setState(katexState); return undefined; }
+        katexWaiters.add(setState);
+        return () => { katexWaiters.delete(setState); };
+      });
+      return state;
+    }
+
+    function escHtml(text) {
+      return String(text).replace(/[&<>"']/g, (ch) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+      ));
+    }
+
+    function texOf(source, display) {
+      const raw = display ? '$$' + source + '$$' : '$' + source + '$';
+      const katex = typeof window !== 'undefined' ? window.katex : null;
+      if (!katex) return escHtml(raw);
+      try {
+        // output:'mathml' 只用浏览器原生 MathML：不带 KaTeX 的 CSS 与字体，
+        // 正好绕开「字体是二进制、而代理的 raw 通道只传文本」这个问题。
+        return katex.renderToString(source, {
+          displayMode: display, throwOnError: false, strict: 'ignore', output: 'mathml',
+        });
+      } catch (error) { return escHtml(raw); }
+    }
+
+    /** 纯文本 → HTML：`$…$` 行内、`$$…$$` 独立成行；不配对的 `$` 当普通字符。 */
+    function mathHtml(text) {
+      const source = String(text === null || text === undefined ? '' : text);
+      if (source.indexOf('$') < 0) return escHtml(source);
+      let out = '';
+      let i = 0;
+      while (i < source.length) {
+        const at = source.indexOf('$', i);
+        if (at < 0) { out += escHtml(source.slice(i)); break; }
+        out += escHtml(source.slice(i, at));
+        if (source.substr(at, 2) === '$$') {
+          const end = source.indexOf('$$', at + 2);
+          if (end > at + 2) { out += texOf(source.slice(at + 2, end), true); i = end + 2; continue; }
+          out += escHtml('$$'); i = at + 2; continue;
+        }
+        const close = source.indexOf('$', at + 1);
+        if (close > at + 1) { out += texOf(source.slice(at + 1, close), false); i = close + 1; continue; }
+        out += escHtml('$'); i = at + 1;
+      }
+      return out;
+    }
+
+    /**
+     * 文本块：先按纯文本渲染（首屏与测试都简单），挂载后再就地换成公式。
+     * 用「渲染完再改写 DOM」而不是 dangerouslySetInnerHTML，是为了保住文本节点上的
+     * 选中/复制，也让既有渲染测试仍然看到文字。
+     */
+    function MathText(props) {
+      const ref = useRef(null);
+      useKatex();
+      const stamp = useRef('');
+      useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const text = String(props.text === null || props.text === undefined ? '' : props.text);
+        const mark = text + '\u0000' + katexState;
+        if (stamp.current === mark) return;
+        stamp.current = mark;
+        if (katexState === 2 && text.indexOf('$') >= 0) el.innerHTML = mathHtml(text);
+        else el.textContent = text;
+      });
+      return h('div', {
+        ref,
+        className: props.className || 'mb-text',
+        style: props.style,
+      }, props.text);
+    }
+
     /* ── 宿主服务 ─────────────────────────────────────────────────────── */
 
     const hostServices = { sessions: null };
@@ -399,7 +508,7 @@ window.__ModuleLoader__.load({
         !rows ? h('div.mb-empty', null, '读取中…') : !items.length
           ? h('div.mb-empty', null, '还没有变式。加一条同知识点的新题，练习时就会轮换到它。')
           : h('div.mb-panel', null, items.map((row) => h('div.mb-hrow', { key: row.id },
-              h('span', { style: { flex: '1 1 auto', minWidth: '0' } }, clip(row.question, 60)),
+              h(MathText, { className: 'mb-q', style: { flex: '1 1 auto', minWidth: '0' }, text: clip(row.question, 60) }),
               h('span.mb-htime', null, '练过 ' + (row.times_used || 0) + ' 次'),
               h('button.mb-btn.mini', { type: 'button', onClick: () => void used(row.id) }, '练过'),
               h('button.mb-btn.mini', { type: 'button', onClick: () => void drop(row.id) }, '删')))),
@@ -666,10 +775,10 @@ window.__ModuleLoader__.load({
         backBar,
         h('div.mb-block', null,
           h('div.mb-label', null, '题目 #' + item.id),
-          h('div.mb-text', null, item.question || '')),
+          h(MathText, { text: item.question || '' })),
         item.my_answer ? h('div.mb-block', null,
           h('div.mb-label', null, '我的答案'),
-          h('div.mb-panel', null, h('div.mb-text', null, item.my_answer))) : null,
+          h('div.mb-panel', null, h(MathText, { text: item.my_answer }))) : null,
         images.length ? h('div.mb-block', null,
           h('div.mb-label', null, '题目图片'),
           h('div.mb-imgs', null, images.map((img, index) =>
@@ -677,10 +786,10 @@ window.__ModuleLoader__.load({
               h('img', { src: rawUrl('/api/images/' + encodeURIComponent(img.file)), alt: '题目图片 ' + (index + 1) }))))) : null,
         revealed ? h('div.mb-block', null,
           h('div.mb-label', null, '正确答案'),
-          h('div.mb-text', null, item.answer || '（未填）'),
+          h(MathText, { text: item.answer || '（未填）' }),
           item.analysis ? h('div.mb-block', { style: { marginTop: '10px' } },
             h('div.mb-label', null, '解析'),
-            h('div.mb-text', null, item.analysis)) : null) :
+            h(MathText, { text: item.analysis })) : null) :
           h('div.mb-reveal', null,
             h('button.mb-btn', { type: 'button', onClick: () => setRevealed(true) }, '看答案与解析')),
         (item.mistake_type || item.error_reason) ? h('div.mb-block', null,
@@ -1011,7 +1120,7 @@ window.__ModuleLoader__.load({
             onClick: (event) => event.stopPropagation(),
           }),
           h('div', { style: { flex: '1 1 auto', minWidth: '0' }, onClick: () => onOpen(item.id, 'review') },
-            h('div.mb-q', null, clip(item.question, 120)),
+            h(MathText, { className: 'mb-q', text: clip(item.question, 120) }),
             h('div.mb-meta', null,
               item.id === pickedId && filters.due ? h('span.mb-dot') : null,
               h('span', null, item.subject || '未分科'),
@@ -1403,7 +1512,7 @@ window.__ModuleLoader__.load({
           h('div.mb-label', null, '变式缺口（错得多但没变式）'),
           gaps && gaps.items && gaps.items.length
             ? h('div.mb-panel', null, gaps.items.map((row) => h('div.mb-hrow', { key: row.id },
-                h('span', { style: { flex: '1 1 auto' } }, clip(row.question, 70)),
+                h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(row.question, 70) }),
                 h('span.mb-htime', null, (row.variant_count ? '变式 ' + row.variant_count + ' 条' : '无变式') + ' · 错 ' + row.wrong + ' 次'))))
             : h('div.mb-empty', null, '暂时没有缺口。')));
     }
@@ -1503,7 +1612,7 @@ window.__ModuleLoader__.load({
               key: item.id, type: 'button', title: onOpen ? '在「错题」页打开这道题' : '',
               onClick: () => { if (onOpen) onOpen(item.id); },
             },
-              h('span', { style: { flex: '1 1 auto' } }, clip(item.question, 70)),
+              h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(item.question, 70) }),
               h('span.mb-badge', null, item.subject || '未分科'),
               dueText(item) ? h('span.mb-badge.overdue', null, dueText(item)) : null))))));
     }
@@ -1670,7 +1779,7 @@ window.__ModuleLoader__.load({
                 h('span.mb-badge', null, '连对 ' + item.correct_streak + '/' + item.need_streak),
                 h('span.mb-badge', null, '正确率 ' + (item.accuracy === null || item.accuracy === undefined ? '—' : Math.round(item.accuracy * 100) + '%')),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void suspend(item.id) }, '斩题')),
-              h('div.mb-text', { style: { marginTop: '6px' } }, clip(item.question, 160)),
+              h(MathText, { style: { marginTop: '6px' }, text: clip(item.question, 160) }),
               h('div.mb-meta', null,
                 h('span', null, '上次：' + (RESULT_LABEL[item.last_result] || '未复习')),
                 item.last_reviewed_at ? h('span', null, String(item.last_reviewed_at).slice(0, 10)) : null,
@@ -1727,7 +1836,7 @@ window.__ModuleLoader__.load({
                 h('span.mb-spacer'),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void act(item.id, true) }, '恢复'),
                 h('button.mb-btn.mini', { type: 'button', onClick: () => void act(item.id, false) }, '彻底删除')),
-              h('div.mb-text', { style: { marginTop: '6px' } }, clip(item.question, 160)))),
+              h(MathText, { style: { marginTop: '6px' }, text: clip(item.question, 160) }))),
             report.total > report.items.length
               ? h('div.mb-empty', null, '共 ' + report.total + ' 条，只显示最近 ' + report.items.length + ' 条') : null));
     }
@@ -1884,7 +1993,7 @@ window.__ModuleLoader__.load({
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog,
-        Dropdown, isLightColor,
+        Dropdown, isLightColor, MathText,
       },
     };
   },

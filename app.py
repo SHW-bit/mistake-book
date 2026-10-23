@@ -31,6 +31,17 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+# v0.25：DSH 面板跑在另一个 origin 里，直接 <script src="/vendor/katex/…"> 会被同源策略拦掉。
+# 所以把渲染器挂到 /api/asset 上，让面板经宿主代理取回；只放行 vendor/katex/ 一个目录，
+# 不把整个 static/ 敞开成通用文件服务。
+ASSET_PREFIX = "/vendor/katex/"
+ASSET_MIME = {
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+}
 DB_PATH = os.environ.get("MISTAKE_DB", os.path.join(BASE_DIR, "data", "mistakes.db"))
 
 STATUSES = ("new", "reviewing", "mastered")
@@ -2729,6 +2740,30 @@ class AppHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _asset(self, target: str) -> None:
+        """回源 vendor/katex/ 下的静态文件（面板的公式渲染器）。
+
+        target 来自查询串，必须当成不可信输入：先按前缀挡掉，再用 realpath 确认
+        落点仍在 vendor/katex/ 里面，防止 ../ 跳出目录。
+        """
+        if not target.startswith(ASSET_PREFIX) or ".." in target or "\\" in target or "//" in target:
+            raise NotFound("资产不存在: %s" % target)
+        root = os.path.realpath(os.path.join(STATIC_DIR, "vendor", "katex"))
+        path = os.path.realpath(os.path.join(STATIC_DIR, target.lstrip("/")))
+        if path != root and not path.startswith(root + os.sep):
+            raise NotFound("资产不存在: %s" % target)
+        if not os.path.isfile(path):
+            raise NotFound("资产不存在: %s" % target)
+        with open(path, "rb") as fh:
+            body = fh.read()
+        ext = os.path.splitext(path)[1].lower()
+        self.send_response(200)
+        self.send_header("Content-Type", ASSET_MIME.get(ext, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
+
     # -- 路由 --
     def do_GET(self):
         self._dispatch("GET")
@@ -2844,6 +2879,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path == "/api/export.json" and method == "GET":
                 return self._stream("application/json; charset=utf-8",
                                     iter_export(conn), "mistakes-backup.json")
+            if path == "/api/asset" and method == "GET":
+                return self._asset(one(params, "path"))
             match = re.fullmatch(r"/api/images/([^/]+)", path)
             if match and method == "GET":
                 return self._image(unquote(match.group(1)))
