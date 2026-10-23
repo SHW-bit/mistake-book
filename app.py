@@ -29,6 +29,12 @@ import fsrs  # 本地模块：FSRS-6 间隔重复调度器
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
+# 可选依赖：装了 Pillow 就用来生成缩略图（1.3MB 截图 → 约 60KB），没装照样跑。
+try:
+    from PIL import Image as _PILImage
+except Exception:  # pragma: no cover - 取决于运行环境
+    _PILImage = None
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 # v0.25：DSH 面板跑在另一个 origin 里，直接 <script src="/vendor/katex/…"> 会被同源策略拦掉。
@@ -369,6 +375,38 @@ def image_url(name: str) -> str:
     return ("/api/images/" + name) if name else ""
 
 
+def image_data_url(path: str, max_side: int = 1000, quality: int = 82) -> str:
+    """把图片文件转成 data URL。
+
+    v0.32：面板的 raw 通道把响应体当文本解码，二进制图片过不去（前端只看到坏图）。
+    这里改走 JSON，直接给 data URL，客户端 <img src> 就能显示。
+    装了 Pillow 会缩到 max_side 并转 JPEG；没装就原样 base64（能用，只是大）。
+    """
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as fh:
+            blob = fh.read()
+    except OSError:
+        return ""
+    if not blob:
+        return ""
+    if _PILImage is not None:
+        try:
+            img = _PILImage.open(io.BytesIO(blob))
+            img.thumbnail((max_side, max_side))
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=quality, optimize=True)
+            return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            pass
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    mime = {"png": "image/png", "webp": "image/webp", "gif": "image/gif"}.get(ext, "image/jpeg")
+    return "data:" + mime + ";base64," + base64.b64encode(blob).decode("ascii")
+
+
 def _decode_image(data_url: str) -> tuple:
     """校验 Data URL 并解码，返回 (原始字节, 扩展名)。"""
     match = re.match(r"^data:image/([a-zA-Z0-9.+-]+);base64,(.*)$", data_url, re.S)
@@ -445,8 +483,11 @@ def migrate_image_table(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-def images_of(conn: sqlite3.Connection, mid: int) -> list:
-    """一道题的全部图片，按 sort 排序。老记录没有子表行时回落到 image_file。"""
+def images_of(conn: sqlite3.Connection, mid: int, with_data: bool = False) -> list:
+    """一道题的全部图片，按 sort 排序。老记录没有子表行时回落到 image_file。
+
+    with_data=True 时每条多带一个 data（data URL）：详情页直接渲染，不走 raw 通道。
+    """
     rows = conn.execute(
         "SELECT file, field FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id", (mid,)).fetchall()
     pairs = [(r["file"], r["field"] or "") for r in rows]
@@ -454,7 +495,14 @@ def images_of(conn: sqlite3.Connection, mid: int) -> list:
         legacy = conn.execute("SELECT image_file FROM mistakes WHERE id = ?", (mid,)).fetchone()
         if legacy is not None and legacy["image_file"]:
             pairs = [(legacy["image_file"], "")]
-    return [{"file": name, "url": image_url(name), "field": field} for name, field in pairs]
+    base = image_dir(db_path_of(conn)) if with_data else ""
+    out = []
+    for name, field in pairs:
+        entry = {"file": name, "url": image_url(name), "field": field}
+        if with_data:
+            entry["data"] = image_data_url(os.path.join(base, name))
+        out.append(entry)
+    return out
 
 
 def _set_images(conn: sqlite3.Connection, mid: int, files) -> None:
@@ -540,7 +588,7 @@ def get_mistake(conn: sqlite3.Connection, mid: int) -> dict:
     if row is None:
         raise NotFound("错题不存在: id=%d" % mid)
     data = row_to_dict(row, include_image=True)
-    data["images"] = images_of(conn, mid)
+    data["images"] = images_of(conn, mid, with_data=True)
     return data
 
 
@@ -2271,8 +2319,19 @@ def query_mistakes(conn: sqlite3.Connection, params: dict) -> dict:
         (*args, size, (page - 1) * size),
     ).fetchall()
 
-    return {"items": [row_to_dict(r, include_image=thumbs) for r in rows],
-            "total": total, "page": page, "page_size": size}
+    items = []
+    if thumbs:
+        base = image_dir(db_path_of(conn))
+        for row in rows:
+            item = row_to_dict(row, include_image=True)
+            # image_file 是内部字段，不对外暴露；缩略图直接从 Row 上取名算
+            name = row["image_file"] if "image_file" in row.keys() else ""
+            if name:
+                item["thumb"] = image_data_url(os.path.join(base, name), 220, 78)
+            items.append(item)
+    else:
+        items = [row_to_dict(r, include_image=False) for r in rows]
+    return {"items": items, "total": total, "page": page, "page_size": size}
 
 
 def stats(conn: sqlite3.Connection) -> dict:

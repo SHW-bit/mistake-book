@@ -143,10 +143,15 @@ export async function callRaw(s, path, init) {
   } catch (err) {
     throw new Error('连不上错题本服务（' + s.url + '）：' + (err && err.message ? err.message : String(err)));
   }
+  // v0.32：先取字节再解码文本。原来直接 res.text() 会把二进制（图片）当 UTF-8 解码，
+  // 字节被替换成 U+FFFD，前端拿到的永远是坏图。body 保留文本形态给 CSV 用，
+  // bytes 给 raw 通道原样回吐。
+  const bytes = Buffer.from(await res.arrayBuffer());
   return {
     status: res.status,
     contentType: res.headers.get('content-type') || 'application/octet-stream',
     disposition: res.headers.get('content-disposition') || '',
-    body: await res.text(),
+    body: bytes.toString('utf8'),
+    bytes,
   };
 }

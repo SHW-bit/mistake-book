@@ -53,6 +53,8 @@ window.__ModuleLoader__.load({
       '.mb-btn.primary{background:var(--mb-accent);border-color:transparent;color:#fff;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.14)}',
       '.mb-btn.primary:hover{filter:brightness(1.07);background:var(--mb-accent);border-color:transparent}',
       '.mb-btn.mini{height:24px;padding:0 8px;font-size:11px;border-radius:7px}',
+      '.mb-btn.danger{color:var(--mb-danger);border-color:color-mix(in srgb,var(--mb-danger) 30%,var(--mb-line))}',
+      '.mb-btn.danger:hover{background:color-mix(in srgb,var(--mb-danger) 12%,transparent);border-color:color-mix(in srgb,var(--mb-danger) 45%,var(--mb-line))}',
       '.mb-btn.on{background:var(--mb-hover);border-color:var(--mb-line-strong);font-weight:600}',
       '.mb-tabs{display:flex;gap:2px;margin:6px 0 0;padding:0 0 6px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}',
       '.mb-tabs::-webkit-scrollbar{display:none}',
@@ -84,11 +86,23 @@ window.__ModuleLoader__.load({
       '.mb-q{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45;font-size:12.5px}',
       '.mb-meta{display:flex;gap:6px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--mb-dim);flex-wrap:wrap}',
       '.mb-dot{width:5px;height:5px;border-radius:50%;background:var(--mb-danger);flex:0 0 auto}',
-      '.mb-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:999px;background:var(--mb-hover);color:var(--mb-dim);font-size:10.5px;line-height:1.6}',
-      '.mb-badge.overdue{background:color-mix(in srgb,var(--mb-danger) 15%,transparent);color:var(--mb-danger)}',
+      '.mb-badge{display:inline-flex;align-items:center;gap:3px;height:21px;padding:0 8px;border-radius:999px;border:1px solid var(--mb-line);background:var(--mb-hover);color:var(--mb-dim);font-size:11px;line-height:1}',
+      '.mb-badge.overdue{background:color-mix(in srgb,var(--mb-danger) 15%,transparent);border-color:color-mix(in srgb,var(--mb-danger) 34%,transparent);color:var(--mb-danger)}',
       '.mb-badge.type{background:var(--mb-accent-soft);color:var(--mb-accent)}',
-      '.mb-cta{height:34px;padding:0 18px;font-size:13px;box-shadow:0 2px 8px color-mix(in srgb,var(--mb-accent) 34%,transparent)}\n.mb-detail{overflow:auto;padding:14px 16px 26px;min-width:0;max-width:820px;margin:0 auto}',
+      '.mb-cta{width:100%;height:40px;padding:0 18px;font-size:13.5px;box-shadow:0 2px 8px color-mix(in srgb,var(--mb-accent) 34%,transparent)}\n.mb-detail{overflow:auto;padding:14px 16px 26px;min-width:0;max-width:820px;margin:0 auto}',
       '.mb-block{margin:0 0 18px}',
+      '.mb-card{border:1px solid var(--mb-line);border-radius:var(--mb-r-lg);background:var(--mb-surface);padding:13px 15px 14px;margin:0 0 12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}',
+      '.mb-card.q{border-color:color-mix(in srgb,var(--mb-accent) 22%,var(--mb-line));background:color-mix(in srgb,var(--mb-accent) 4%,var(--mb-surface))}',
+      '.mb-cardhead{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--mb-dim);margin:0 0 10px}',
+      '.mb-cardhead::after{content:"";flex:1 1 auto;height:1px;background:var(--mb-line)}',
+      '.mb-qbig{font-size:14.5px;line-height:1.78}',
+      '.mb-attr{display:flex;gap:7px;row-gap:7px;align-items:center;flex-wrap:wrap}',
+      '.mb-attr+.mb-attr{margin-top:12px;padding-top:12px;border-top:1px dashed var(--mb-line)}',
+      '.mb-attrlabel{font-size:11.5px;color:var(--mb-dim);margin-right:2px;flex:0 0 auto}',
+      '.mb-attr .mb-tag{height:20px;line-height:20px;font-size:11px;padding:0 8px;border:1px solid var(--mb-line);background:var(--mb-hover);color:color-mix(in srgb,currentColor 88%,transparent)}',
+      '.mb-empty.compact{margin:0;padding:11px 13px;text-align:left;font-size:12px;line-height:1.7;border-style:solid;border-color:var(--mb-line);background:transparent;color:var(--mb-dim)}',
+      '.mb-facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}',
+      '.mb-cta2{width:100%;height:38px;margin-top:12px;justify-content:center;font-size:13px}',
       '.mb-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mb-faint);margin-bottom:7px}',
       '.mb-text{white-space:pre-wrap;line-height:1.72;word-break:break-word;font-size:13.5px}',
       '.mb-panel{border:1px solid var(--mb-line);border-radius:var(--mb-r-lg);padding:12px 14px;background:var(--mb-subtle)}',
@@ -97,7 +111,7 @@ window.__ModuleLoader__.load({
       '.mb-pop.dark{box-sizing:border-box;background:#232529;color:#ecedf0;border-color:rgba(255,255,255,.14)}',
       '.mb-reveal{display:flex;align-items:center;gap:8px;margin:8px 0 14px;flex-wrap:wrap}',
       '.mb-step{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--mb-dim)}',
-      '.mb-rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}',
+      '.mb-rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;max-width:560px}',
       '.mb-rate button{height:44px;border-radius:var(--mb-r);border:1px solid var(--mb-line-strong);background:var(--mb-surface);box-shadow:0 1px 2px rgba(0,0,0,.06);color:inherit;font-family:inherit;font-size:12px;cursor:pointer;transition:background .12s,border-color .12s,transform .06s}',
       '.mb-rate button:hover{background:var(--mb-hover);border-color:var(--mb-line-strong)}',
       '.mb-rate button:active{transform:translateY(.5px)}',
@@ -517,8 +531,8 @@ window.__ModuleLoader__.load({
           ? '' : ' · 正确率 ' + Math.round(log.accuracy * 100) + '%')
         : count ? '复习 ' + count + ' 次' : '还没复习过';
 
-      return h('div.mb-block', null,
-        h('div.mb-label', null, '复习历史'),
+      return h('div.mb-card', null,
+        h('div.mb-cardhead', null, '复习历史'),
         h('div.mb-reveal', null,
           h('button.mb-btn', {
             type: 'button',
@@ -582,11 +596,11 @@ window.__ModuleLoader__.load({
       };
 
       const items = rows && Array.isArray(rows.items) ? rows.items : [];
-      return h('div.mb-block', null,
-        h('div.mb-label', null, '变式题' + (rows && rows.total ? ' · ' + rows.total + ' 条' : '')),
+      return h('div.mb-card', null,
+        h('div.mb-cardhead', null, '变式题' + (rows && rows.total ? ' · ' + rows.total + ' 条' : '')),
         error ? h('div.mb-note.bad', null, error) : null,
         !rows ? h('div.mb-empty', null, '读取中…') : !items.length
-          ? h('div.mb-empty', null, '还没有变式。加一条同知识点的新题，练习时就会轮换到它。')
+          ? h('div.mb-empty.compact', null, '还没有变式。加一条同知识点的新题，练习时就会轮换到它。')
           : h('div.mb-panel', null, items.map((row) => h('div.mb-hrow', { key: row.id },
               h(MathText, { className: 'mb-q', style: { flex: '1 1 auto', minWidth: '0' }, text: clip(row.question, 60) }),
               h('span.mb-htime', null, '练过 ' + (row.times_used || 0) + ' 次'),
@@ -615,7 +629,7 @@ window.__ModuleLoader__.load({
       const { meta, initial, onSave, onCancel, busy, error, submitLabel } = props;
       const [form, setForm] = useState(() => emptyForm(initial));
       const [images, setImages] = useState(() => (initial && Array.isArray(initial.images)
-        ? initial.images.map((img) => ({ src: img.url, file: img.file, field: img.field || 'question' })) : []));
+        ? initial.images.map((img) => ({ src: img.data || img.url, file: img.file, field: img.field || 'question' })) : []));
       const [dirty, setDirty] = useState(false);
       const [imgError, setImgError] = useState('');
       const fileRef = useRef(null);
@@ -902,50 +916,74 @@ window.__ModuleLoader__.load({
       }
 
       const images = Array.isArray(item.images) ? item.images : [];
+      // v0.32 修复：图片按 field 归位（题目/我的答案/正确答案/解析各回各家），
+      // 且优先用后端给的 data URL —— 面板的 raw 通道把二进制当文本解码，直接 src 会坏图。
+      const imgField = (img) => (img && img.field) || 'question';
+      const KNOWN_FIELDS = ['question', 'wrong', 'answer', 'analysis'];
+      const imgsFor = (fields) => images.filter((img) => fields.indexOf(imgField(img)) >= 0);
+      const imgSrc = (img) => img.data || rawUrl(img.url || ('/api/images/' + encodeURIComponent(img.file)));
+      // 没有 field 的老图、以及认不出的 field，都归题目，别让它凭空消失
+      const questionImgs = imgsFor(['question'])
+        .concat(images.filter((img) => KNOWN_FIELDS.indexOf(imgField(img)) < 0));
+      const wrongImgs = imgsFor(['wrong']);
+      const answerImgs = imgsFor(['answer']);
+      const analysisImgs = imgsFor(['analysis']);
+      const imgRow = (list) => (list.length ? h('div.mb-imgs', null, list.map((img, index) =>
+        h('a.mb-thumb', { key: (img.file || 'img') + ':' + index, href: imgSrc(img), target: '_blank', rel: 'noreferrer' },
+          h('img', {
+            src: imgSrc(img), alt: '图片 ' + (index + 1), loading: 'lazy',
+            // 万一宿主 CSP 不放 data:，退回 raw 通道（v0.32 起那条通道已经是二进制安全的）
+            onError: (event) => {
+              const el = event.target;
+              if (!el || el.dataset.fallback) return;
+              el.dataset.fallback = '1';
+              el.src = rawUrl('/api/images/' + encodeURIComponent(img.file));
+            },
+          })))) : null);
       return h('div.mb-detail', null,
         backBar,
-        h('div.mb-block', null,
-          h('div.mb-label', null, '题目 #' + item.id),
-          h(MathText, { text: item.question || '' })),
-        item.my_answer ? h('div.mb-block', null,
-          h('div.mb-label', null, '我的答案'),
-          h('div.mb-panel', null, h(MathText, { text: item.my_answer }))) : null,
-        images.length ? h('div.mb-block', null,
-          h('div.mb-label', null, '题目图片'),
-          h('div.mb-imgs', null, images.map((img, index) =>
-            h('a.mb-thumb', { key: index, href: rawUrl('/api/images/' + encodeURIComponent(img.file)), target: '_blank', rel: 'noreferrer' },
-              h('img', { src: rawUrl('/api/images/' + encodeURIComponent(img.file)), alt: '题目图片 ' + (index + 1) }))))) : null,
-        revealed ? h('div.mb-block', null,
-          h('div.mb-label', null, '正确答案'),
+        h('div.mb-card.q', null,
+          h('div.mb-cardhead', null, '题目 #' + item.id),
+          h(MathText, { className: 'mb-qbig', text: item.question || '' }),
+          imgRow(questionImgs)),
+        (item.my_answer || wrongImgs.length) ? h('div.mb-card', null,
+          h('div.mb-cardhead', null, '我的答案'),
+          item.my_answer ? h(MathText, { className: 'mb-text', text: item.my_answer }) : null,
+          imgRow(wrongImgs)) : null,
+        revealed ? h('div.mb-card', null,
+          h('div.mb-cardhead', null, '正确答案'),
           h(MathText, { text: item.answer || '（未填）' }),
-          item.analysis ? h('div.mb-block', { style: { marginTop: '10px' } },
-            h('div.mb-label', null, '解析'),
-            h(MathText, { text: item.analysis })) : null) :
+          imgRow(answerImgs),
+          item.analysis ? h('div', { style: { marginTop: '12px' } },
+            h('div.mb-cardhead', null, '解析'),
+            h(MathText, { text: item.analysis })) : null,
+          imgRow(analysisImgs)) :
           h('div.mb-reveal', null,
             h('button.mb-btn.primary.mb-cta', { type: 'button', onClick: () => setRevealed(true) }, '看答案与解析')),
-        (item.mistake_type || item.error_reason) ? h('div.mb-block', null,
-          h('div.mb-label', null, '错因'),
-          h('div.mb-text', null, [item.mistake_type, item.error_reason].filter(Boolean).join(' —— '))) : null,
-        h('div.mb-block', null,
-          h('div.mb-meta', null,
+        h('div.mb-card', null,
+          h('div.mb-cardhead', null, '属性'),
+          (item.mistake_type || item.error_reason) ? h('div.mb-attr', null,
+            h('span.mb-attrlabel', null, '错因'),
+            h('span', null, [item.mistake_type, item.error_reason].filter(Boolean).join(' —— '))) : null,
+          h('div.mb-attr', null,
             item.subject ? h('span.mb-badge', null, item.subject) : null,
             item.knowledge ? h('span.mb-badge.type', null, item.knowledge) : null,
             item.source ? h('span.mb-badge', null, item.source) : null,
             h('span.mb-badge', null, '难度 ' + stars(item.difficulty)),
             h('span.mb-badge', null, '复习 ' + (item.review_count || 0) + ' 次'),
             dueText(item) ? h('span.mb-badge.overdue', null, dueText(item)) : null,
-            item.suspended ? h('span.mb-badge.overdue', null, '已斩题') : null)),
-        item.tags ? h('div.mb-block', null,
-          h('div.mb-label', null, '标签'),
-          h('div', null, String(item.tags).split(',').filter(Boolean).map((tag) =>
-            h('span.mb-tag', { key: tag }, tag)))) : null,
+            item.suspended ? h('span.mb-badge.overdue', null, '已斩题') : null),
+          item.tags ? h('div.mb-attr', null,
+            h('span.mb-attrlabel', null, '标签'),
+            String(item.tags).split(',').filter(Boolean).map((tag) =>
+              h('span.mb-tag', { key: tag }, tag))) : null),
         h(HistoryBlock, {
           key: item.id + ':' + (item.review_count || 0),
           id: item.id, count: item.review_count || 0,
         }),
         h(VariantsBlock, { key: 'var:' + item.id, id: item.id }),
-        h('div.mb-block', null,
-          h('div.mb-label', null, '这次记得怎么样'),
+        h('div.mb-card', null,
+          h('div.mb-cardhead', null, '这次记得怎么样'),
           h('div.mb-step', null,
             h('span', null, '错在哪一步'),
             h(Dropdown, {
@@ -960,15 +998,16 @@ window.__ModuleLoader__.load({
                 h('span', null, pair[0] + (preview && preview.preview && preview.preview[pair[0]]
                   ? ' · ' + preview.preview[pair[0]] + '天' : ''))))),
           note ? h('div.mb-note' + (note.ok ? '' : '.bad'), null, note.text) : null),
-        h('div.mb-block', null,
-          h('div.mb-formfoot', null,
+        h('div.mb-card', null,
+          h('div.mb-facts', null,
             h('button.mb-btn', { type: 'button', onClick: () => setEditing(true), disabled: busy }, '编辑'),
             h('button.mb-btn', { type: 'button', onClick: () => void rate('mastered'), disabled: busy }, '标记掌握'),
             h('button.mb-btn', { type: 'button', onClick: () => void toggleSuspend(), disabled: busy },
               item.suspended ? '恢复复习' : '斩题'),
-            h('button.mb-btn', { type: 'button', onClick: () => void remove(), disabled: busy }, '删除'),
-            h('button.mb-btn.primary', { type: 'button', onClick: () => void startAi(), disabled: busy },
-              busy ? '正在建会话…' : '让 AI 带我复习这道'))));
+            h('button.mb-btn.danger', { type: 'button', onClick: () => void remove(), disabled: busy }, '删除'),
+            ),
+          h('button.mb-btn.primary.mb-cta2', { type: 'button', onClick: () => void startAi(), disabled: busy },
+            busy ? '正在建会话…' : '让 AI 带我复习这道')));
     }
 
     /* ── 自定义下拉（v0.24）────────────────────────────────────────────── */
@@ -1279,9 +1318,9 @@ window.__ModuleLoader__.load({
                 item.knowledge ? h('span.mb-tag.k', null, clip(item.knowledge, 16)) : null,
                 item.mistake_type ? h('span.mb-tag', null, item.mistake_type) : null,
                 item.review_count ? h('span.mb-tag.n', null, '复习 ' + item.review_count) : null)),
-            item.image_file ? h('div.mb-thumbwrap', { onClick: () => onOpen(item.id, 'review') },
+            (item.thumb || item.image_url || item.image_file) ? h('div.mb-thumbwrap', { onClick: () => onOpen(item.id, 'review') },
               h('img.mb-listthumb', {
-                src: rawUrl('/api/images/' + encodeURIComponent(item.image_file)),
+                src: item.thumb || rawUrl(item.image_url || ('/api/images/' + encodeURIComponent(item.image_file))),
                 alt: '题目图片', loading: 'lazy',
               })) : null),
           h('div.mb-rowacts', null,

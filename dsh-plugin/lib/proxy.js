@@ -71,7 +71,7 @@ export function registerDataRoute(ctx, config) {
             const got = await callRaw(s, target, init);
             const headers = { 'content-type': got.contentType };
             if (got.disposition) headers['content-disposition'] = got.disposition;
-            return new Response(got.body, { status: got.status, headers });
+            return new Response(got.bytes || got.body, { status: got.status, headers });
           } catch (error) {
             const message = error && error.message ? error.message : String(error);
             return Response.json({
