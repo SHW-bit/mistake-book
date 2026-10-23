@@ -122,3 +122,31 @@ export async function call(s, path, init) {
   }
   return body && typeof body === 'object' && 'data' in body ? body.data : body;
 }
+
+/**
+ * 原样取回响应（导出 CSV / 备份 JSON 用）。与 call 的区别是**不解析**也不拆信封：
+ * 导出接口回的是文件流，解析成 JSON 就废了。
+ * @param {{url: string, home: string, python: string}} s 归一化设置。
+ * @param {string} path 以 / 开头的路径与查询串。
+ * @param {RequestInit} [init] fetch 选项。
+ * @returns {Promise<{status: number, contentType: string, disposition: string, body: string}>}
+ */
+export async function callRaw(s, path, init) {
+  await ensureServer(s);
+  let res;
+  try {
+    res = await fetch(s.url + path, {
+      ...init,
+      headers: { ...(init && init.headers) },
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (err) {
+    throw new Error('连不上错题本服务（' + s.url + '）：' + (err && err.message ? err.message : String(err)));
+  }
+  return {
+    status: res.status,
+    contentType: res.headers.get('content-type') || 'application/octet-stream',
+    disposition: res.headers.get('content-disposition') || '',
+    body: await res.text(),
+  };
+}

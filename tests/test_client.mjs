@@ -74,7 +74,7 @@ test('物化工厂时就把样式注进 head（副作用只在工厂里，不在
   assert.equal(styles.length, 0, '文件跑完不该注入任何东西');
   registered[0].factory(() => fakeReact());
   assert.equal(styles.length, 1);
-  assert.match(styles[0], /\.mb-body/);
+  assert.match(styles[0], /\.mb-split/);
 });
 
 test('apply：注册 main 座位（带 session 子座位）与 sidebar.panellist 入口', () => {

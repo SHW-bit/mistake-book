@@ -11,7 +11,7 @@
  * 这条路由和建会话路由一样，只在根行上挂一次（见 lib/plugin.js）。
  */
 
-import { call, settings } from './api.js';
+import { call, callRaw, settings } from './api.js';
 
 /** 路由路径（客户端按它 GET/POST，真实路径放 ?path=）。 */
 export const DATA_PATH = '/api/mistake-book/data';
@@ -42,12 +42,15 @@ export function registerDataRoute(ctx, config) {
     if (typeof connectionCtx.effect !== 'function') return;
     connectionCtx.effect(() => connection.fetch.register({
       path: DATA_PATH,
-      methods: ['GET', 'POST'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
       requestBody: 'buffered',
       fetch: async (request) => {
         let target = '';
+        let raw = false;
         try {
-          target = new URL(request.url).searchParams.get('path') || '';
+          const query = new URL(request.url).searchParams;
+          target = query.get('path') || '';
+          raw = query.get('raw') === '1';
         } catch {
           target = '';
         }
@@ -57,11 +60,25 @@ export function registerDataRoute(ctx, config) {
             error: { code: 'path-invalid', message: 'path 参数要是本服务的 /api/* 路径' },
           }, { status: 400 });
         }
-        const init = {};
-        if (request.method === 'POST') {
-          const raw = await request.text();
-          if (raw) init.body = raw;
-          init.method = 'POST';
+        const init = { method: request.method };
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          const text = await request.text();
+          if (text) init.body = text;
+        }
+        if (raw) {
+          // 导出：把上游的字节与 Content-Disposition 原样交回浏览器，才会触发下载。
+          try {
+            const got = await callRaw(s, target, init);
+            const headers = { 'content-type': got.contentType };
+            if (got.disposition) headers['content-disposition'] = got.disposition;
+            return new Response(got.body, { status: got.status, headers });
+          } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            return Response.json({
+              ok: false,
+              error: { code: 'upstream-failed', message },
+            }, { status: 502 });
+          }
         }
         try {
           const data = await call(s, target, init);

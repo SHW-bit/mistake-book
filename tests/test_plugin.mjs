@@ -274,7 +274,8 @@ test('代理路由：路径、方法、请求体模式对得上', () => {
   registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
   assert.ok(registered);
   assert.equal(registered.path, DATA_PATH);
-  assert.deepEqual(registered.methods, ['GET', 'POST']);
+  // v0.23：面板要能改（PUT）、删（DELETE）、恢复（POST），只放 GET/POST 会 405。
+  assert.deepEqual(registered.methods, ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']);
   assert.equal(registered.requestBody, 'buffered');
 });
 
@@ -415,3 +416,72 @@ test('代理路由：上游挂了给 502，把原因带回去', async () => {
     stub.restore();
   }
 });
+
+test('代理路由：PUT 也转发方法与请求体（面板改题走这条）', async () => {
+  const stub = stubUpstream(async () => Response.json({ ok: true, data: { id: 12, subject: '高数' } }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?path='
+      + encodeURIComponent('/api/mistakes/12'), {
+      method: 'PUT',
+      body: JSON.stringify({ subject: '高数' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const response = await registered.fetch(request);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.data.subject, '高数');
+
+    const upstream = stub.seen.find((c) => !c.url.endsWith('/api/health'));
+    assert.equal(upstream.init.method, 'PUT');
+    assert.equal(upstream.init.body, JSON.stringify({ subject: '高数' }));
+  } finally {
+    stub.restore();
+  }
+});
+
+test('代理路由：raw=1 原样吐出上游字节与 Content-Disposition（导出 CSV）', async () => {
+  const stub = stubUpstream(async () => new Response('id,question\n1,hi\n', {
+    status: 200,
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': 'attachment; filename="mistakes.csv"',
+    },
+  }));
+  try {
+    let registered = null;
+    const ctx = {
+      inject(services, cb) {
+        cb({
+          connection: { fetch: { register: (route) => { registered = route; } } },
+          effect: (fn) => fn(),
+          get: () => null,
+        });
+      },
+    };
+    registerDataRoute(ctx, { url: 'http://127.0.0.1:8000' });
+
+    const request = new Request('http://dsh.internal/api/mistake-book/data?raw=1&path='
+      + encodeURIComponent('/api/export.csv'));
+    const response = await registered.fetch(request);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/csv/);
+    assert.match(response.headers.get('content-disposition'), /mistakes\.csv/);
+    // 关键：不是 {ok,data} 信封，而是原始 CSV 文本
+    assert.equal(await response.text(), 'id,question\n1,hi\n');
+  } finally {
+    stub.restore();
+  }
+});
+
