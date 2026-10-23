@@ -212,6 +212,29 @@ class ApiTest(unittest.TestCase):
         self.assertIn('id="ar-list"', html)
         self.assertIn('id="ar-show"', html)
 
+    def test_static_three_pages_conclusion_first(self):
+        """学习/计划/分析三页 = 结论卡 + 指标 + 折叠细节（v0.33）。
+
+        这三页以前是「数据墙」：一屏全是数字，看完不知道该干什么。
+        改成先说结论、再给一个按钮之后，用断言把结构钉住，免得以后又退回去。
+        """
+        with urllib.request.urlopen(self.base + "/", timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        # 每页都有结论卡与指标区
+        for anchor in ('id="st-hero"', 'id="st-kpis"', 'id="pl-hero"',
+                       'id="an-hero"', 'id="an-kpis"'):
+            self.assertIn(anchor, html)
+        # 旧的数据墙容器已经删掉，别再被加回来
+        for gone in ('id="st-overview"', 'id="pl-overview"', 'id="an-overview"'):
+            self.assertNotIn(gone, html)
+        # 三页共用的结构与跳转工具函数
+        for name in ('function jumpToList(', 'function kpi(', 'function kpVerdict(',
+                     'function weakRow(', 'function planRow('):
+            self.assertIn(name, html)
+        # 每个主按钮都带 data-kp 或 id=pl-start，事件委托才能接住
+        self.assertIn('class="primary" id="pl-start"', html)
+        self.assertIn(".weekbars", html)
+
     def test_create_requires_question(self):
         status, body = self.call("POST", "/api/mistakes", {"subject": "数学"})
         self.assertEqual(status, 400)

@@ -311,6 +311,43 @@ label input,label select,label textarea{width:100%}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:14px 16px;margin-bottom:12px}
 .panel h3{margin:0 0 9px;font-size:14px;font-weight:650}
+/* ---- 三页共用：先说结论，再给一个按钮，细节收进折叠 ---- */
+.hero{display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+  padding:14px 16px;margin-bottom:12px;border-radius:var(--radius);
+  background:var(--brand-soft);border:1px solid rgba(47,111,79,.24)}
+.hero-l{flex:1 1 240px;min-width:0}
+.hero-t{margin:0;font-size:15px;font-weight:650;line-height:1.45}
+.hero-s{margin:5px 0 0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+.hero button.primary{height:36px;padding:0 16px;font-size:13px;flex:none}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(102px,1fr));gap:8px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
+.kpi b{display:block;font-size:18px;font-weight:650;font-variant-numeric:tabular-nums}
+.kpi span{display:block;margin-top:1px;font-size:11px;color:var(--ink-3)}
+.krow{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.krow:first-child{border-top:0;padding-top:0}
+.krow:hover .krow-t>span:first-child{text-decoration:underline}
+.krow-l{flex:1;min-width:0}
+.krow-t{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px;font-weight:600}
+.krow-s{margin-top:3px;font-size:12px;line-height:1.65;color:var(--muted)}
+.fold{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:0 16px;margin-bottom:12px}
+.fold>summary{cursor:pointer;list-style:none;padding:12px 0;font-size:12px;font-weight:650;color:var(--muted)}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary::before{content:"▸ ";font-size:10px}
+.fold[open]>summary::before{content:"▾ "}
+.foldbody{padding:0 0 14px}
+.weekbars{display:flex;gap:6px;margin:0}
+.wb{flex:1;min-width:0;text-align:center;font-size:11px;color:var(--ink-3)}
+.wb b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
+.wb .track{display:flex;align-items:flex-end;height:48px;border-radius:6px;background:var(--subtle);overflow:hidden}
+.wb .track i{display:block;width:100%;border-radius:6px;background:rgba(47,111,79,.45)}
+.wb.on b{color:var(--brand);font-weight:700}
+.wb.on .track i{background:var(--brand)}
+@media(max-width:767px){
+  .hero{padding:12px 14px}
+  .hero button.primary{width:100%}
+  .kpi{padding:8px 10px}
+}
 /* ---- 到期提醒横幅（不 sticky：会与侧栏/底部栏抢层级）---- */
 .remind{display:flex;gap:10px;align-items:center;
   padding:10px 18px;background:rgba(168,113,42,.08);border-bottom:1px solid rgba(168,113,42,.22);
@@ -569,8 +606,8 @@ label input,label select,label textarea{width:100%}
       <button type="button" class="ghost" id="st-refresh">刷新</button>
     </div>
   </div>
-  <div class="overview" id="st-overview"></div>
-  <p class="viewnote" id="st-note"></p>
+  <div id="st-hero"></div>
+  <div id="st-kpis"></div>
   <div id="st-tree" hidden></div>
   <div class="list" id="st-list"></div>
   <details class="panel" id="st-gap-box">
@@ -607,7 +644,7 @@ label input,label select,label textarea{width:100%}
       <button type="button" class="ghost" id="pl-refresh">刷新</button>
     </div>
   </div>
-  <div class="overview" id="pl-overview"></div>
+  <div id="pl-hero"></div>
   <div id="pl-list"></div>
 </main>
 
@@ -626,8 +663,8 @@ label input,label select,label textarea{width:100%}
       <button type="button" class="ghost" id="an-refresh">刷新</button>
     </div>
   </div>
-  <div class="overview" id="an-overview"></div>
-  <p class="viewnote">保持度 = 0.9^(距上次复习天数 / 稳定性)，粗略预测，不是精确模型。</p>
+  <div id="an-hero"></div>
+  <div id="an-kpis"></div>
   <div id="an-body"></div>
 </main>
 
@@ -1225,28 +1262,60 @@ label input,label select,label textarea{width:100%}
   // ---- 学习页：知识点画像 + 掌握门禁 ----
   function bandCls(k) { return 'band ' + (k || 'weak'); }
 
-  function kpCard(p) {
-    var acc = p.accuracy == null ? '—' : Math.round(p.accuracy * 100) + '%';
-    var gate = p.mastered_gate
-      ? '<span class="gate-ok">✓ 已过门禁</span>'
-      : '<span class="gate-no">未过：' + esc((p.gate_reasons || []).join('；')) + '</span>';
-    return '<article class="kp" data-kp="' + esc(p.knowledge) + '">' +
-      '<div class="top">' +
-        '<span class="name">' + esc(p.knowledge) + '</span>' +
-        '<span class="' + bandCls(p.band && p.band.key) + '">' + esc((p.band && p.band.label) || '薄弱') + '</span>' +
-        '<span class="badge">' + p.mistakes + ' 道题</span>' +
-        (p.due ? '<span class="badge overdue">' + p.due + ' 道待复习</span>' : '') +
-        gate +
+  // 旧的 kpCard 已由 kpRow 取代
+  // ---- 学习 / 计划 / 分析 三页共用：先说结论，再给一个动作，细节收进折叠 ----
+  // 面板里这三页已经改成这个范式（v0.33），网页端照抄，避免一边一个样。
+  function kpi(n, label) {
+    return '<div class="kpi"><b>' + esc(String(n == null ? 0 : n)) + '</b><span>' + esc(label) + '</span></div>';
+  }
+
+  function clipText(text, max) {
+    text = String(text == null ? '' : text);
+    return text.length > max ? text.slice(0, max) + '…' : text;
+  }
+
+  // 带着筛选条件跳到错题页：知识点能精确匹配就按知识点筛，否则退回全文搜索。
+  function jumpToList(opts) {
+    var o = opts || {};
+    $('#due').checked = !!o.due;
+    var sel = $('#knowledge');
+    sel.value = o.knowledge || '';
+    var mismatched = false;
+    if (o.knowledge && sel.value !== o.knowledge) { sel.value = ''; mismatched = true; }
+    $('#q').value = mismatched ? o.knowledge : '';
+    state.page = 1;
+    switchView('list');
+    load();
+    renderChips();
+  }
+
+
+  // 一句话说清这个知识点到底怎么样，而不是甩六个数字让人自己算。
+  function kpVerdict(p) {
+    if (p.accuracy == null || !p.graded) {
+      return '还没测过 —— 先做一遍，才知道是真不会还是手生。';
+    }
+    var acc = Math.round(p.accuracy * 100);
+    if (acc < 50) { return '正确率 ' + acc + '%（' + p.correct + '/' + p.graded + '），这个点基本还没拿下。'; }
+    if (acc < 80) { return '正确率 ' + acc + '%（' + p.correct + '/' + p.graded + '），能做对一半以上，但还不稳。'; }
+    return '正确率 ' + acc + '%（' + p.correct + '/' + p.graded + '），已经比较稳，按间隔复习就行。';
+  }
+
+  function kpRow(p) {
+    return '<div class="krow" data-kp="' + esc(p.knowledge) + '">' +
+      '<div class="krow-l">' +
+        '<div class="krow-t"><span>' + esc(p.knowledge) + '</span>' +
+          '<span class="' + bandCls(p.band && p.band.key) + '">' +
+            esc((p.band && p.band.label) || '薄弱') + '</span>' +
+          '<span class="badge">' + p.mistakes + ' 道题</span>' +
+          (p.due ? '<span class="badge overdue">' + p.due + ' 道待复习</span>' : '') +
+        '</div>' +
+        '<div class="krow-s">' + esc(kpVerdict(p)) +
+          (p.mastered_gate ? ' 已过门禁。'
+            : ' 未过：' + esc((p.gate_reasons || []).join('；')) + '。') + '</div>' +
       '</div>' +
-      '<div class="meter">' +
-        '<span>正确率 <b>' + acc + '</b>' + (p.graded ? '（' + p.correct + '/' + p.graded + '）' : '') + '</span>' +
-        '<span>平均稳定性 <b>' + p.avg_stability + '</b> 天</span>' +
-        '<span>最低 <b>' + p.min_stability + '</b> 天</span>' +
-        '<span>连续答对 <b>' + p.min_stage + '</b> 次</span>' +
-        '<span>遗忘 <b>' + p.lapses + '</b> 次</span>' +
-        '<span>复习 <b>' + p.reviews + '</b> 次</span>' +
-      '</div>' +
-      '</article>';
+      '<button type="button" class="ghost mini" data-kp="' + esc(p.knowledge) + '">去练</button>' +
+      '</div>';
   }
 
   function loadStudy() {
@@ -1254,28 +1323,47 @@ label input,label select,label textarea{width:100%}
     var qs = subj ? '?subject=' + encodeURIComponent(subj) : '';
     $('#st-list').innerHTML = '<div class="empty">加载中…</div>';
     if (stTree) { loadTree(); }
-    return Promise.all([api('/api/mastery' + qs), api('/api/profile' + qs)]).then(function (r) {
-      var m = r[0];
+    return api('/api/mastery' + qs).then(function (m) {
       var bc = m.band_counts || {};
-      $('#st-overview').innerHTML =
-        '<span>知识点 <b>' + m.points_total + '</b></span>' +
-        '<span>已过门禁 <b>' + m.passed_total + '</b></span>' +
-        '<span>🟥 薄弱 <b>' + (bc.weak || 0) + '</b></span>' +
-        '<span>🟨 一般 <b>' + (bc.fair || 0) + '</b></span>' +
-        '<span>🟩 良好 <b>' + (bc.good || 0) + '</b></span>' +
-        '<span>🟦 已牢固 <b>' + (bc.mastered || 0) + '</b></span>';
-      $('#st-sub').textContent = '知识点 ' + m.points_total + ' 个 · 已过门禁 ' + m.passed_total + ' 个';
       var t = m.thresholds || {};
-      $('#st-note').textContent = '门禁：≥' + t.min_mistakes + ' 道题 / 连续答对 ≥' +
-        t.min_stage + ' 次 / 稳定性 ≥' + t.min_stability + ' 天';
-
       var all = (m.pending || []).concat(m.passed || []);
+      var weakest = (m.pending || [])[0] || null;
+      var dueTotal = all.reduce(function (s, p) { return s + (p.due || 0); }, 0);
+
+      $('#st-hero').innerHTML = '<div class="hero">' +
+        '<div class="hero-l">' +
+          '<p class="hero-t">' +
+            esc(!weakest ? '还没有能练的知识点'
+              : (weakest.accuracy != null && weakest.accuracy >= 0.8
+                  ? '「' + weakest.knowledge + '」已经比较稳' : '今天先补「' + weakest.knowledge + '」')) +
+          '</p>' +
+          '<p class="hero-s">' + esc(weakest
+            ? kpVerdict(weakest) + '这个点有 ' + weakest.mistakes + ' 道题' +
+              (weakest.due ? '，其中 ' + weakest.due + ' 道今天到期' : '') + '。'
+            : '录入错题时把「知识点」填上，这里就会按知识点汇总出你最该补的地方。') + '</p>' +
+        '</div>' +
+        (weakest ? '<button type="button" class="primary" data-kp="' + esc(weakest.knowledge) +
+          '">先练「' + esc(clipText(weakest.knowledge, 12)) + '」· ' + weakest.mistakes + ' 道</button>' : '') +
+        '</div>';
+
+      $('#st-kpis').innerHTML = '<div class="kpis">' +
+        kpi(m.points_total, '知识点') +
+        kpi(m.passed_total, '已过门禁') +
+        kpi(dueTotal, '今天到期') +
+        kpi(bc.weak || 0, '薄弱') +
+        kpi(bc.mastered || 0, '已牢固') +
+        '</div>';
+
+      $('#st-sub').textContent = '知识点 ' + m.points_total + ' 个 · 已过门禁 ' + m.passed_total +
+        ' 个 · 门禁 ≥' + t.min_mistakes + ' 道 / 连对 ≥' + t.min_stage +
+        ' 次 / 稳定性 ≥' + t.min_stability + ' 天';
+
       if (!all.length) {
         $('#st-list').innerHTML = '<div class="empty">还没有带知识点的错题。' +
           '在录入时填「知识点」，这里就会按知识点聚合出你的薄弱项。</div>';
         return;
       }
-      $('#st-list').innerHTML = all.map(kpCard).join('');
+      $('#st-list').innerHTML = all.map(kpRow).join('');
     }).catch(function (e) {
       $('#st-list').innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
     });
@@ -1402,20 +1490,16 @@ label input,label select,label textarea{width:100%}
     });
   }
 
-  // ---- 计划页：今日复习 ----
-  function planCard(it) {
-    return '<article class="card" data-id="' + it.id + '">' +
-      '<div class="body">' +
-      '<div class="row">' +
-      '<span class="badge">' + esc(it.subject) + '</span>' +
-      (it.knowledge ? '<span class="badge type">' + esc(it.knowledge) + '</span>' : '') +
-      (it.mistake_type ? '<span class="badge type">' + esc(it.mistake_type) + '</span>' : '') +
-      (isOverdue(it) ? '<span class="badge overdue">逾期</span>' : '') +
-      '<span>' + stars(it.difficulty) + '</span>' +
-      '<span>复习 ' + it.review_count + ' 次</span>' +
+  // ---- 计划页：今天做什么，一个按钮开始 ----
+  function planRow(it) {
+    return '<div class="krow" data-id="' + it.id + '">' +
+      '<div class="krow-l">' +
+        '<div class="krow-t"><span>' + esc(clipText(it.question, 70)) + '</span></div>' +
+        '<div class="krow-s">' + esc(it.subject || '未分科') +
+          (it.knowledge ? ' · ' + esc(it.knowledge) : '') +
+          (dueText(it) ? ' · ' + esc(dueText(it)) : '') + '</div>' +
       '</div>' +
-      '<p class="q-text">' + esc(it.question) + '</p>' +
-      '</div></article>';
+      '</div>';
   }
 
   function loadPlan() {
@@ -1427,29 +1511,64 @@ label input,label select,label textarea{width:100%}
     if (subj) { p.set('subject', subj); }
     $('#pl-list').innerHTML = '<div class="empty">加载中…</div>';
     return api('/api/plan?' + p.toString()).then(function (d) {
-      $('#pl-overview').innerHTML =
-        '<span>今天要做 <b>' + d.today_count + '</b> 道</span>' +
-        '<span>逾期 <b>' + d.overdue + '</b> 道</span>' +
-        '<span>窗口内 <b>' + d.total + '</b> 道</span>' +
-        '<span>每日上限 <b>' + d.daily_limit + '</b></span>' +
-        (d.overflow ? '<span style="color:#b45309">排不下 <b>' + d.overflow +
-          '</b> 道，加大上限或延长天数</span>' : '');
+      var days = d.days || [];
+      var week = days.slice(0, 7);
+      var peak = Math.max.apply(null, [1].concat(week.map(function (x) { return x.count || 0; })));
+      var today = days[0] || null;
+      var later = days.slice(1).filter(function (x) { return x.count; });
+      var laterTotal = later.reduce(function (s, x) { return s + x.count; }, 0);
+      var minutes = Math.max(2, Math.round((d.today_count || 0) * 3));
+
+      $('#pl-hero').innerHTML = '<div class="hero">' +
+        '<div class="hero-l">' +
+          '<p class="hero-t">' + esc(d.today_count
+            ? '今天有 ' + d.today_count + ' 道要复习' : '今天没有要复习的题') + '</p>' +
+          '<p class="hero-s">' + esc(d.today_count
+            ? (d.overdue ? '其中 ' + d.overdue + ' 道已经逾期，先做这些。' : '没有逾期的，按计划走就行。') +
+              '按每道 3 分钟粗算，大约 ' + minutes + ' 分钟。'
+            : '未来 ' + d.window_days + ' 天一共排了 ' + d.total + ' 道。想加题就去「错题」页录。') + '</p>' +
+        '</div>' +
+        (d.today_count ? '<button type="button" class="primary" id="pl-start">开始今天的 ' +
+          d.today_count + ' 道</button>' : '') +
+        '</div>';
+
       $('#pl-sub').textContent = '今天 ' + d.today_count + ' 道 · 逾期 ' + d.overdue +
         ' 道 · 未来 ' + d.window_days + ' 天共 ' + d.total + ' 道';
       // 输入框失焦时对齐后端生效值（含没填、填错时回落 settings 的情况）
       if (document.activeElement !== $('#pl-limit')) { $('#pl-limit').value = d.daily_limit; }
+
       if (!d.total) {
         $('#pl-list').innerHTML = '<div class="empty">未来 ' + d.window_days +
           ' 天没有要复习的题。去录几道，或把状态改成「复习中」。</div>';
         return;
       }
-      $('#pl-list').innerHTML = d.days.filter(function (day) { return day.count; })
-        .map(function (day) {
-          return '<section class="daygroup">' +
-            '<div class="dayhead"><b>' + esc(day.label) + '</b><span>' + esc(day.date) + '</span>' +
-            '<span class="badge">' + day.count + ' 道</span></div>' +
-            '<div class="list">' + day.items.map(planCard).join('') + '</div></section>';
-        }).join('');
+
+      $('#pl-list').innerHTML =
+        '<div class="panel"><h3>未来 7 天负载</h3>' +
+          '<div class="weekbars">' + week.map(function (day, i) {
+            return '<div class="wb' + (i === 0 ? ' on' : '') + '">' +
+              '<b>' + day.count + '</b>' +
+              '<span class="track"><i style="height:' +
+                Math.max(4, Math.round((day.count || 0) / peak * 100)) + '%"></i></span>' +
+              '<span>' + esc(i === 0 ? '今天' : String(day.date).slice(5)) + '</span></div>';
+          }).join('') + '</div>' +
+          (d.overflow ? '<p class="viewnote" style="margin:8px 0 0;color:var(--warn)">还有 ' +
+            d.overflow + ' 道排不下，加大每日上限或把窗口拉长</p>' : '') +
+        '</div>' +
+        '<div class="panel"><h3>今天 · ' + (today ? today.count : 0) + ' 道</h3>' +
+          (today && today.count
+            ? today.items.map(planRow).join('')
+            : '<div class="hint">今天没有到期题。</div>') +
+        '</div>' +
+        (later.length
+          ? '<details class="fold"><summary>后面几天 · ' + laterTotal + ' 道</summary>' +
+              '<div class="foldbody">' + later.map(function (day) {
+                return '<div class="daygroup"><div class="dayhead"><b>' + esc(day.label) +
+                  '</b><span>' + esc(day.date) + '</span>' +
+                  '<span class="badge">' + day.count + ' 道</span></div>' +
+                  day.items.map(planRow).join('') + '</div>';
+              }).join('') + '</div></details>'
+          : '');
     }).catch(function (e) {
       $('#pl-list').innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
     });
@@ -1487,46 +1606,122 @@ label input,label select,label textarea{width:100%}
       '<span><i style="background:#2563eb"></i>复习次数</span></div>';
   }
 
+  // ---- 分析页：先给结论（该补哪儿），指标放折叠 ----
+  function weakRow(p) {
+    var acc = Math.round((p.accuracy == null ? 0 : p.accuracy) * 100);
+    var cls = acc < 50 ? 'danger' : (acc < 80 ? 'warn' : 'ok');
+    return '<div class="krow">' +
+      '<div class="krow-l">' +
+        '<div class="krow-t"><span>' + esc(p.knowledge) + '</span>' +
+          '<span class="badge">' + p.mistakes + ' 道题</span>' +
+          '<span class="badge ' + (cls === 'danger' ? 'wrong' : '') + '">正确率 ' + acc + '%</span>' +
+          // 正确率已经不错时不再贴「薄弱」：那是稳定性低导致的，说了只会让人困惑
+          (p.band && acc < 80
+            ? '<span class="' + bandCls(p.band.key) + '">' + esc(p.band.label) + '</span>'
+            : '') +
+        '</div>' +
+        '<div class="krow-s">' + esc(acc < 50
+          ? '基本还没拿下，先把这个点重做一遍。'
+          : (acc < 80 ? '能做对一半以上，但还不够稳，多练几遍。'
+                      : '已经比较稳，按间隔复习保持就行。')) + '</div>' +
+      '</div>' +
+      '<button type="button" class="ghost mini" data-kp="' + esc(p.knowledge) + '">去练</button>' +
+      '</div>';
+  }
+
   function loadAnalytics() {
     var days = $('#an-days').value;
     $('#an-body').innerHTML = '<div class="empty">加载中…</div>';
     return api('/api/analytics?days=' + days).then(function (d) {
       var r = d.retention || { counts: [], total: 0, weakest: [] };
-      $('#an-overview').innerHTML =
-        '<span>近 ' + d.window_days + ' 天新增 <b>' + d.trend_totals.created + '</b></span>' +
-        '<span>复习 <b>' + d.trend_totals.reviewed + '</b> 次</span>' +
-        '<span>有记忆数据的题 <b>' + r.total + '</b></span>';
-      $('#an-sub').textContent = '近 ' + d.window_days + ' 天 · 新增 ' +
-        d.trend_totals.created + ' 道 · 复习 ' + d.trend_totals.reviewed + ' 次';
-      var ret = r.counts.map(function (c) {
+      var weak = d.weak_points || [];
+      var tt = d.trend_totals || { created: 0, reviewed: 0 };
+      var byType = (d.by_type || [])[0] || null;
+      var fragile = (r.weakest || []).filter(function (s) { return s.retention < 0.6; }).length;
+      // 正确率已经 ≥80% 的点不算「弱项」：排序时它可能仍然排第一，
+      // 但结论区不能把「你没问题」说成「你最该补这个点」。
+      var pick = null;
+      for (var i = 0; i < weak.length; i++) {
+        if (weak[i].accuracy == null || weak[i].accuracy < 0.8) { pick = weak[i]; break; }
+      }
+      var errPart = byType ? '，最常见的错因是「' + byType.name + '」' : '';
+
+      $('#an-hero').innerHTML = '<div class="hero">' +
+        '<div class="hero-l">' +
+          '<p class="hero-t">' + esc(!weak.length
+            ? '还没有能判断弱项的数据'
+            : (pick ? '最该补「' + pick.knowledge + '」' : '目前没有明显弱项')) + '</p>' +
+          '<p class="hero-s">' + esc(!weak.length
+            ? '多复习几次，并给错题打上知识点和错因，这里就会给出结论。'
+            : (pick
+                ? '正确率 ' + Math.round(pick.accuracy * 100) + '%（' + pick.mistakes + ' 道题）。' +
+                  '近 ' + d.window_days + ' 天新增 ' + tt.created + ' 道、复习 ' + tt.reviewed + ' 次' + errPart + '。'
+                : '已知知识点的正确率都在 80% 以上。近 ' + d.window_days + ' 天新增 ' + tt.created +
+                  ' 道、复习 ' + tt.reviewed + ' 次' + errPart + '。接下来靠间隔复习保持就行。')) + '</p>' +
+        '</div>' +
+        (pick ? '<button type="button" class="primary" data-kp="' + esc(pick.knowledge) +
+          '">去练「' + esc(clipText(pick.knowledge, 12)) + '」· ' + pick.mistakes + ' 道</button>' : '') +
+        '</div>';
+
+      $('#an-kpis').innerHTML = '<div class="kpis">' +
+        kpi(tt.created, '新增错题') +
+        kpi(tt.reviewed, '复习次数') +
+        kpi(r.total, '有记忆数据') +
+        kpi(fragile, '快要忘的') +
+        kpi(weak.length, '薄弱知识点') +
+        '</div>';
+
+      $('#an-sub').textContent = '近 ' + d.window_days + ' 天 · 新增 ' + tt.created +
+        ' 道 · 复习 ' + tt.reviewed + ' 次 · 有记忆数据 ' + r.total + ' 道';
+
+      var ret = (r.counts || []).map(function (c) {
         return { name: c.label, count: r.total ? Math.round(c.count / r.total * 100) : 0 };
       });
-      var weak = (d.weak_points || []).map(function (p) {
-        return { name: p.knowledge, count: Math.round(p.accuracy * 100),
-                 mistakes: p.mistakes };
-      });
+
       $('#an-body').innerHTML =
-        '<div class="panel"><h3>录入 / 复习趋势</h3>' + trendChart(d.trend) + '</div>' +
-        '<div class="panel"><h3>记忆保持度分布（%）</h3>' +
-          (r.total ? hbars(ret, { percent: true }) : '<div class="hint">还没有复习记录。</div>') +
-          (r.weakest && r.weakest.length
-            ? '<h3 style="margin-top:14px">最快会忘的题</h3>' + r.weakest.map(function (s) {
-                return '<div class="hbar"><span class="hlabel" title="' + esc(s.knowledge) + '">' +
-                  esc(s.knowledge || ('#' + s.id)) + '</span>' +
-                  '<span class="htrack"><span class="hfill warn" style="width:' +
-                  Math.round(s.retention * 100) + '%"></span></span>' +
-                  '<b>' + Math.round(s.retention * 100) + '%</b>' +
-                  '<span class="hm">' + s.elapsed_days + ' 天前 / 稳定性 ' +
-                  s.stability + ' 天</span></div>';
-              }).join('')
-            : '') +
+        '<div class="panel"><h3>该练什么</h3>' +
+          (weak.length ? weak.map(weakRow).join('')
+            : '<div class="hint">还没有带评分记录的错题。复习时点四档评分，这里就会排序。</div>') +
         '</div>' +
-        '<div class="panel"><h3>错因分布</h3>' + hbars(d.by_type) + '</div>' +
-        '<div class="panel"><h3>学科分布</h3>' + hbars(d.by_subject) + '</div>' +
-        '<div class="panel"><h3>最薄弱知识点（正确率）</h3>' +
-          (weak.length ? hbars(weak, { percent: true, warn: true })
-                       : '<div class="hint">还没有带评分记录的错题。</div>') +
-        '</div>';
+        '<details class="fold"><summary>录入 / 复习趋势</summary>' +
+          '<div class="foldbody">' + trendChart(d.trend) + '</div></details>' +
+        '<details class="fold"><summary>记忆保持度分布' +
+          (r.total ? '（' + r.total + ' 道有数据）' : '') + '</summary>' +
+          '<div class="foldbody">' +
+            (r.total ? hbars(ret, { percent: true }) : '<div class="hint">还没有复习记录。</div>') +
+            (r.weakest && r.weakest.length
+              ? '<h3 style="margin-top:14px">最快会忘的题</h3>' + r.weakest.map(function (s) {
+                  return '<div class="hbar"><span class="hlabel" title="' + esc(s.knowledge) + '">' +
+                    esc(s.knowledge || ('#' + s.id)) + '</span>' +
+                    '<span class="htrack"><span class="hfill warn" style="width:' +
+                    Math.round(s.retention * 100) + '%"></span></span>' +
+                    '<b>' + Math.round(s.retention * 100) + '%</b>' +
+                    '<span class="hm">' + s.elapsed_days + ' 天前 / 稳定性 ' +
+                    s.stability + ' 天</span></div>';
+                }).join('')
+              : '') +
+            '<p class="viewnote">保持度 = 0.9^(距上次复习天数 / 稳定性)，粗略预测，不是精确模型。</p>' +
+          '</div></details>' +
+        '<details class="fold"><summary>错在哪一步' +
+          ((d.by_step || []).length ? '（' + (d.by_step || []).length + ' 类断点）' : '') + '</summary>' +
+          '<div class="foldbody">' +
+            ((d.by_step || []).length
+              ? hbars(d.by_step)
+              : '<div class="hint">还没有记过断点。复习时点评分旁边可以选「审题 / 建模 / 计算 / 检验 / 表达 / 记忆」。</div>') +
+            ((d.step_patterns || []).length
+              ? '<h3 style="margin-top:14px">反复出现的组合</h3>' +
+                (d.step_patterns || []).map(function (p) {
+                  return '<div class="hbar"><span class="hlabel" title="' +
+                    esc(p.knowledge + ' / ' + p.step) + '">' +
+                    esc(p.knowledge) + ' × ' + esc(p.step) + '</span>' +
+                    '<b>' + p.count + ' 次</b></div>';
+                }).join('')
+              : '') +
+          '</div></details>' +
+        '<details class="fold"><summary>错因分布</summary>' +
+          '<div class="foldbody">' + hbars(d.by_type) + '</div></details>' +
+        '<details class="fold"><summary>学科分布</summary>' +
+          '<div class="foldbody">' + hbars(d.by_subject) + '</div></details>';
     }).catch(function (e) {
       $('#an-body').innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
     });
@@ -2277,16 +2472,19 @@ label input,label select,label textarea{width:100%}
       }
     });
   });
-  $('#st-list').addEventListener('click', function (e) {
-    var card = e.target.closest('.kp');
-    if (!card) { return; }
-    var kp = card.dataset.kp;
-    var sel = $('#knowledge');
-    sel.value = kp;
-    if (sel.value !== kp) { sel.value = ''; $('#q').value = kp; }
-    state.page = 1;
-    switchView('list');
-    load();
+  // 三页里所有带 data-kp 的按钮/行都走同一套跳转：知识点能精确匹配就按知识点筛，
+  // 匹配不上（知识点已改名/带层级）就退回全文搜索，不让用户点了没反应。
+  document.querySelectorAll('#st-hero,#st-list,#an-hero,#an-body').forEach(function (box) {
+    box.addEventListener('click', function (e) {
+      var hit = e.target.closest('[data-kp]');
+      if (!hit) { return; }
+      jumpToList({ knowledge: hit.dataset.kp });
+    });
+  });
+
+  $('#pl-hero').addEventListener('click', function (e) {
+    if (!e.target.closest('#pl-start')) { return; }
+    jumpToList({ due: true });
   });
 
   // 计划页
@@ -2308,8 +2506,8 @@ label input,label select,label textarea{width:100%}
     }).then(loadPlan).catch(function (err) { alert('保存失败：' + err.message); });
   });
   $('#pl-list').addEventListener('click', function (e) {
-    var card = e.target.closest('.card');
-    if (card) { openEdit(card.dataset.id); }
+    var row = e.target.closest('[data-id]');
+    if (row) { openEdit(row.dataset.id); }
   });
 
   // 再战区

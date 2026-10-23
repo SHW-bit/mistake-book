@@ -494,7 +494,8 @@ test('计划页：今日/逾期/窗口内计数与按天分组', () => {
   };
   const dom = render(loadPlugin(['7', '10', '', report, '']).plugin.__test__.PlanView({ meta: META }));
   const text = textOf(dom).join('|');
-  assert.match(text, /今天要做/);
+  assert.match(text, /今天有 2 道要复习/);
+  assert.match(text, /已经逾期/);
   assert.match(text, /逾期/);
   assert.match(text, /今天/);
   assert.match(text, /明天/);
@@ -584,7 +585,8 @@ test('学习页：知识点画像、树、别名与变式缺口', () => {
   const dom = render(loadPlugin(['', mastery, tree, aliases, gaps, '', '', '', 0])
     .plugin.__test__.StudyView({ meta: META }));
   const text = textOf(dom).join('|');
-  assert.match(text, /知识点 2 个 · 已过门禁 1 个/);
+  assert.match(text, /已过门禁/);
+  assert.match(text, /今天到期/);
   assert.match(text, /知识点画像/);
   assert.match(text, /极限/);
   assert.match(text, /未过：题量不足/);
@@ -711,4 +713,56 @@ test('学习页：变式缺口点得动，回程指向原题', () => {
   assert.equal(rows.length, 1, '缺口行要渲染成可点按钮');
   rows[0].props.onClick();
   assert.deepEqual(opened, [6]);
+});
+
+// v0.33：三页各给一个能直接干活的入口（点了带着筛选条件跳到错题页）
+test('学习页：最弱点给一个「先练」，点了带着知识点去错题页', () => {
+  const mastery = { points_total: 1, passed_total: 0,
+    thresholds: { min_mistakes: 2, min_stage: 3, min_stability: 7 },
+    band_counts: { weak: 1 },
+    pending: [{ knowledge: '极限', mistakes: 2, due: 1, accuracy: 0.5, avg_stability: 3,
+      min_stability: 2, min_stage: 1, lapses: 1, reviews: 4, mastered_gate: false,
+      band: { label: '薄弱' }, gate_reasons: [] }], passed: [] };
+  const tree = { leaf_total: 0, depth_max: 0, unclassified: 0, roots: [] };
+  const gotos = [];
+  const dom = render(loadPlugin(['', mastery, tree, { items: [] }, { items: [] }, '', '', '', 0])
+    .plugin.__test__.StudyView({ meta: META, onGoto: (patch) => gotos.push(patch) }));
+  const btn = nodesOf(dom, 'button').find((node) => /先练/.test(textOf(node).join('')));
+  assert.ok(btn, '学习页要有「先练」按钮');
+  assert.match(textOf(btn).join(''), /极限/);
+  btn.props.onClick();
+  assert.equal(gotos.length, 1);
+  assert.equal(gotos[0].knowledge, '极限');
+});
+
+test('计划页：今天有几道就给一个「开始今天」，点了只看到期', () => {
+  const report = { window_days: 7, daily_limit: 10, today_count: 2, overdue: 1, total: 3, overflow: 0, days: [] };
+  const gotos = [];
+  const dom = render(loadPlugin(['7', '10', '', report, '', '', '10'])
+    .plugin.__test__.PlanView({ meta: META, onGoto: (patch) => gotos.push(patch) }));
+  const btn = nodesOf(dom, 'button').find((node) => /开始今天的 2 道/.test(textOf(node).join('')));
+  assert.ok(btn, '计划页要有「开始今天」按钮');
+  btn.props.onClick();
+  assert.equal(gotos.length, 1);
+  assert.equal(gotos[0].due, true);
+});
+
+test('分析页：最该补的知识点可以直接去练', () => {
+  const report = { trend: [], trend_totals: {}, retention: { counts: [], total: 0 },
+    weak_points: [{ knowledge: '导数应用', accuracy: 0, mistakes: 1 }], by_type: [], by_subject: [] };
+  const gotos = [];
+  const dom = render(loadPlugin([30, report, '']).plugin.__test__.AnalyticsView({ onGoto: (patch) => gotos.push(patch) }));
+  const btn = nodesOf(dom, 'button').find((node) => /去练「导数应用」/.test(textOf(node).join('')));
+  assert.ok(btn, '分析页要有「去练」按钮');
+  btn.props.onClick();
+  assert.equal(gotos.length, 1);
+  assert.equal(gotos[0].knowledge, '导数应用');
+});
+
+test('去练：预设筛选被错题页取走，且只生效一次', () => {
+  const { plugin } = loadPlugin([]);
+  const search = (dom) => nodesOf(dom, 'input').find((node) => node.props.placeholder === '搜题干 / 知识点 / 标签');
+  plugin.__test__.setPendingListFilter({ q: '极限' });
+  assert.equal(search(render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }))).props.value, '极限');
+  assert.equal(search(render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }))).props.value, '');
 });
