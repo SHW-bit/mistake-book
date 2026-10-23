@@ -161,6 +161,47 @@ test('自定义下拉：关闭态只显示当前项，展开态列出全部并�
   assert.equal(optionNodes[1].props['aria-selected'], 'true', '选中项要 aria-selected');
 });
 
+// 深色主题下弹层若用白底 + 继承来的浅色字就会看不见（v0.24.1 修的 bug）
+test('自定义下拉：按宿主文字亮度决定弹层深浅', () => {
+  const { isLightColor } = loadPlugin([]).plugin.__test__;
+  assert.equal(isLightColor('rgb(221, 221, 221)'), true, '浅字 = 深色主题');
+  assert.equal(isLightColor('rgba(255, 255, 255, 0.92)'), true);
+  assert.equal(isLightColor('rgb(28, 28, 25)'), false, '深字 = 浅色主题');
+  assert.equal(isLightColor('rgb(94, 94, 85)'), false);
+  assert.equal(isLightColor(''), false, '拿不到颜色时按浅色兜底');
+  assert.equal(isLightColor('not-a-color'), false);
+});
+
+// 上面测的是「该用深色弹层吗」；这条测「弹层真的够清楚吗」——直接算 WCAG 对比度，
+// 防止以后有人把 color 改回 inherit（浅字 + 白底，对比度 1.0，肉眼就是一片白）。
+test('自定义下拉：弹层两种配色的对比度都过 WCAG AA', () => {
+  const css = fs.readFileSync(CLIENT, 'utf8');
+  const luminance = (hex) => {
+    const raw = hex.replace('#', '');
+    const full = raw.length === 3 ? raw.split('').map((c) => c + c).join('') : raw;
+    const channels = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const contrast = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const blockOf = (selector) => {
+    const found = new RegExp("'" + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}').exec(css);
+    assert.ok(found, 'client.js 里找不到 ' + selector);
+    return found[1];
+  };
+  const colorsOf = (block) => ({
+    bg: /(?:^|;)background:(#[0-9a-fA-F]{3,6})/.exec(block)[1],
+    fg: /(?:^|;)color:(#[0-9a-fA-F]{3,6})/.exec(block)[1],
+  });
+  const light = colorsOf(blockOf('.mb-dd-pop'));
+  const dark = colorsOf(blockOf('.mb-dd-pop.dark'));
+  assert.ok(contrast(light.bg, light.fg) >= 4.5, '浅色弹层对比度不足：' + contrast(light.bg, light.fg).toFixed(2));
+  assert.ok(contrast(dark.bg, dark.fg) >= 4.5, '深色弹层对比度不足：' + contrast(dark.bg, dark.fg).toFixed(2));
+});
+
 test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   const { plugin } = loadPlugin([]);
   const dom = render(plugin.__test__.MistakeBookApp({}));

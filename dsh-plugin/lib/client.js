@@ -105,13 +105,17 @@ window.__ModuleLoader__.load({
       '.mb-dd-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.mb-dd-caret{flex:0 0 auto;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;opacity:.55;transition:transform .12s}',
       '.mb-dd.open .mb-dd-caret{transform:rotate(180deg)}',
-      '.mb-dd-pop{position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow:auto;background:var(--mb-surface,#fff);border:1px solid var(--mb-line,rgba(127,127,127,.3));border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.16);padding:4px;display:grid;gap:2px}',
+      // 弹层是不透明面板，必须自带前景色：面板整体用 color:inherit 跟随宿主主题，
+      // 只给背景不给字色时，深色主题下会变成「浅字 + 白底」= 看不见。
+      '.mb-dd-pop{position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow:auto;background:#fff;color:#1c1c19;border:1px solid rgba(127,127,127,.35);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18);padding:4px;display:grid;gap:2px}',
+      '.mb-dd-pop.dark{background:#24262a;color:#e9e9ec;border-color:rgba(255,255,255,.16);box-shadow:0 10px 26px rgba(0,0,0,.45)}',
       '.mb-dd-opt{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;border:0;background:transparent;color:inherit;font-family:inherit;font-size:12px;text-align:left;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
-      '.mb-dd-opt.active{background:var(--mb-hover,rgba(127,127,127,.14))}',
+      '.mb-dd-opt.active{background:rgba(127,127,127,.16)}',
+      '.mb-dd-pop.dark .mb-dd-opt.active{background:rgba(255,255,255,.12)}',
       '.mb-dd-opt.on{font-weight:600}',
       '.mb-dd-opt[disabled]{opacity:.45;cursor:not-allowed}',
       '.mb-dd-tick{margin-left:auto;opacity:.75;font-size:11px}',
-      '.mb-dd-empty{padding:6px 8px;font-size:12px;opacity:.6}',
+      '.mb-dd-empty{padding:6px 8px;font-size:12px;color:inherit;opacity:.65}',
       '.mb-hrow.pickable{width:100%;box-sizing:border-box;border:0;background:transparent;color:inherit;font-family:inherit;font-size:12px;text-align:left;cursor:pointer;border-radius:6px;padding:4px 6px}',
       '.mb-hrow.pickable:hover{background:var(--mb-hover,rgba(127,127,127,.1))}',
       '.mb-hrow.pickable:focus-visible{outline:2px solid var(--mb-accent,#3b6ef0);outline-offset:-2px}',
@@ -725,6 +729,17 @@ window.__ModuleLoader__.load({
 
     /* ── 自定义下拉（v0.24）────────────────────────────────────────────── */
 
+    // 宿主是深色还是浅色主题：面板整体 color:inherit，只能从算出来的文字颜色反推。
+    // 文字偏亮（>0.55 相对亮度）说明是深色主题，弹层要用深底浅字。
+    function isLightColor(color) {
+      const found = /rgba?\(([^)]+)\)/.exec(String(color || ''));
+      if (!found) return false;
+      const rgb = found[1].split(',').map((part) => parseFloat(part));
+      if (rgb.length < 3 || rgb.slice(0, 3).some((num) => !isFinite(num))) return false;
+      const lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+      return lum > 0.55;
+    }
+
     // 原生 select 的弹层没法用 CSS 管，长选项会被系统截断；这里用按钮 + 弹层自己实现。
     // 键盘：↑↓ 移动、Enter/Space 选中、Esc 关闭；点外部关闭；禁用项跳过。
     function Dropdown(props) {
@@ -732,6 +747,7 @@ window.__ModuleLoader__.load({
       const cur = props.value == null ? '' : String(props.value);
       const [open, setOpen] = useState(false);
       const [active, setActive] = useState(-1);
+      const [dark, setDark] = useState(false);   // 弹层按宿主主题深浅选配色
       const rootRef = useRef(null);
 
       const currentIndex = list.findIndex((opt) => String(opt.value) === cur);
@@ -746,6 +762,18 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('mousedown', onDown, true);
         return () => document.removeEventListener('mousedown', onDown, true);
+      }, [open]);
+
+      // 面板整体 color:inherit，宿主是深色主题时继承到浅色字；弹层必须有底色+同色系字，
+      // 所以展开时读一次当前文字亮度，浅字就用深色弹层，反之用白底。
+      useEffect(() => {
+        if (!open || typeof window === 'undefined' || !rootRef.current) return;
+        try {
+          const node = rootRef.current;
+          const btn = node.querySelector ? node.querySelector('.mb-dd-btn') : null;
+          const color = window.getComputedStyle(btn || node).color || '';
+          setDark(isLightColor(color));
+        } catch (err) { /* 拿不到样式就按浅色走 */ }
       }, [open]);
 
       const pick = (opt) => {
@@ -794,7 +822,7 @@ window.__ModuleLoader__.load({
         },
           h('span.mb-dd-label', null, currentLabel),
           h('span.mb-dd-caret', { 'aria-hidden': 'true' })),
-        open ? h('div.mb-dd-pop', { role: 'listbox' },
+        open ? h(dark ? 'div.mb-dd-pop.dark' : 'div.mb-dd-pop', { role: 'listbox' },
           list.length ? list.map((opt, index) => h(
             'button.mb-dd-opt' + (index === active ? '.active' : '') + (String(opt.value) === cur ? '.on' : ''),
             {
@@ -1735,7 +1763,7 @@ window.__ModuleLoader__.load({
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog,
-        Dropdown,
+        Dropdown, isLightColor,
       },
     };
   },
