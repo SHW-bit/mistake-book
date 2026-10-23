@@ -291,6 +291,11 @@ python mb.py ktree --subject 高数       # 知识点树（按 / 分层，父节
 python mb.py alias add 求导 导数/求导   # 知识点别名 → 规范名
 python mb.py alias list                 # 别名列表
 python mb.py alias rm 求导              # 删别名
+python mb.py list --knowledge 函数      # 按知识点筛选，默认含子树
+python mb.py list --knowledge 函数 --exact   # 只要精确等于（不含子树）
+python mb.py list --kq 单调            # 包含匹配（模糊找）
+python mb.py list --nokp               # 只看没填知识点的（未归类）
+python mb.py merge 111 2 --to 函数/定义域   # 合并脏知识点（连子树搬，并登记别名）
 python mb.py profile                    # 学习画像（薄弱知识点 + 证据）
 python mb.py mastery                    # 掌握门禁：过线 / 差在哪
 python mb.py plan --days 7 --limit 10   # 今日复习计划（按天分桶 + 每日上限）
@@ -308,7 +313,7 @@ python mb.py --read-only list           # 只读模式，拒绝写操作
 
 默认输出 JSON（agent 直接解析），加 `--text` 输出人读格式。
 
-**最小权限**：分析类任务加 `--read-only`，`add` / `review` / `import` / `suspend` / `restore` 会被拒绝并返回退出码 2；`alias add` / `alias rm` 同样被拒（`alias list` 放行）。`restore` 会**整库覆盖**，比普通写操作更危险——除非用户明确说「用这个备份恢复」，否则不要调用。`remind` / `ktree` / `variant gaps` / `backup` 不写库，随时可用（注意 `remind --email` 会真的发信，`backup` 会在 `data/backups/` 落文件）。组卷打印没有 CLI 子命令，只能在网页端点「组卷打印」（生成的是 HTML 页面，CLI 拿不到）。`mb.py` 本来就没有 `delete` 子命令——删除只留在网页端，这是刻意的：agent 不该有删除权。
+**最小权限**：分析类任务加 `--read-only`，`add` / `review` / `import` / `suspend` / `restore` / `merge` 会被拒绝并返回退出码 2；`alias add` / `alias rm` 同样被拒（`alias list` 放行）。`restore` 会**整库覆盖**，比普通写操作更危险——除非用户明确说「用这个备份恢复」，否则不要调用。`remind` / `ktree` / `variant gaps` / `backup` 不写库，随时可用（注意 `remind --email` 会真的发信，`backup` 会在 `data/backups/` 落文件）。组卷打印没有 CLI 子命令，只能在网页端点「组卷打印」（生成的是 HTML 页面，CLI 拿不到）。`mb.py` 本来就没有 `delete` 子命令——删除只留在网页端，这是刻意的：agent 不该有删除权。
 
 **图片（v0.15）**：题目图片存在 `data/images/`（按内容哈希命名），库里只有文件名。`import` 只接受文本，图片要在网页端传（选文件或截图 Ctrl+V）。`export --out` 的 JSON 只带 `image_url` 不带图片字节——要连图片一起备份，用 `mb.py backup`（会把 `images/` 一并镜像），恢复时自动补回。
 
