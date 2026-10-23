@@ -21,3 +21,5 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+# 视觉 harness 生成的静态页（用 docs/harness/gen.mjs 重新生成）
+docs/harness/*.html
