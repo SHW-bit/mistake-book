@@ -3,13 +3,14 @@
 # 两条预设：复习（study loop）与答疑（就地问答）。preset 的 plugins 行就是它的
 # 身份与工具面——没有单独的工具/提示词字段，删行才是配置层的保证。
 #
-# 安装方式（二选一）：
-#   1. 作为 Bundle 安装本包后，把下面整段合并进 profile 的 cordis.patch.yml；
-#   2. 直接把本文件的 insert 列表追加进 profile 的 cordis.patch.yml。
-# 下面的 <REPO> 是仓库根目录的占位符，安装前替换成你自己的绝对路径：
-#   PowerShell:  (Get-Content cordis.patch.yml) -replace '<REPO>', $PWD.Path | Set-Content cordis.patch.yml
-#   bash:        sed -i "s#<REPO>#$PWD#g" cordis.patch.yml
-# 必须用绝对路径：DSH 会话的工作目录是任意的，相对路径在别处解析不出来。
+# 安装：本包是标准 DSH bundle（package.json 里 dsh.bundle.patch 指向本文件）。
+#   node install.mjs --check    # 只看会做什么
+#   node install.mjs            # 真实拷贝进 profile（不是 junction）
+#   node install.mjs --uninstall
+# install.mjs 会把本包登记进 profile 的 dependencies 与 dsh.profile.bundles，
+# 并把下面的 <REPO>/dsh-plugin 换成安装后的真实绝对路径（customSkillDirs 必须是
+# 绝对路径：DSH 会话的工作目录是任意的，相对路径在别处解析不出来）。
+# 不要用 pnpm 装：pnpm 对本地路径建 junction，DSH 桌面端插件管理读不到，界面里看不见。
 
 # 根行（面板）：宿主只从**根 loader 行**发现 dsh.client，且行名必须是**裸包名**——
 # dsh-client-modules 的 exactPackageSpecifier 对含 "/" 的子路径返回 undefined，直接静默
@@ -45,7 +46,7 @@
             config:
               includeDefaultRoots: false
               customSkillDirs:
-                - '<REPO>/dsh-plugin/skills/review'
+                - "<REPO>/dsh-plugin/skills/review"
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
@@ -76,7 +77,7 @@
             config:
               includeDefaultRoots: false
               customSkillDirs:
-                - '<REPO>/dsh-plugin/skills/qa'
+                - "<REPO>/dsh-plugin/skills/qa"
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'

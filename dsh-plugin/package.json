@@ -1,9 +1,9 @@
 {
   "name": "dsh-mistake-book",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "错题本 DSH 插件：8 个模型工具（复习 / 检索 / 录入 / 判分 / 统计 / 断点 / 事件）+ 两条预设 + 侧栏面板（六页签）",
+  "icon": "./icon.png",
   "exports": {
     ".": "./lib/plugin.js",
     "./tools": "./lib/tools.js",
@@ -11,7 +11,40 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "icon.png",
+    "install.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "mistake-book",
+    "fsrs",
+    "spaced-repetition",
+    "study"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SHW-bit/mistake-book.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SHW-bit/mistake-book/issues"
+  },
+  "homepage": "https://github.com/SHW-bit/mistake-book#readme",
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
