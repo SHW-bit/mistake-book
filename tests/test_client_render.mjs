@@ -254,6 +254,17 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   }
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
+  // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
+  assert.match(text, /v0\.43/);
+});
+
+// v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
+test('标题旁的版本号与 package.json 的 version 一致', () => {
+  const { plugin } = loadPlugin([]);
+  const pkg = JSON.parse(fs.readFileSync(path.join(here, '..', 'dsh-plugin', 'package.json'), 'utf8'));
+  assert.equal(plugin.__test__.CLIENT_VERSION, pkg.version, 'CLIENT_VERSION 与 package.json 版本对不上');
+  const text = textOf(render(plugin.__test__.MistakeBookApp({}))).join('|');
+  assert.match(text, new RegExp('v' + pkg.version.split('.').slice(0, 2).join('\\.')));
 });
 
 // ListTab 的 hooks 顺序：filters, items, total, loading, error, picked,
@@ -367,6 +378,7 @@ test('更多菜单：展开后带 mb-pop 配色与定位，点外部能收起', 
   assert.equal(menu.props.style.position, 'absolute', '没有坐标时退回 CSS 兜底');
   const text = textOf(menu).join('|');
   assert.match(text, /批量导入/);
+  assert.match(text, /词表整理/);
   assert.match(text, /导出 CSV/);
   assert.match(text, /备份 JSON/);
 });

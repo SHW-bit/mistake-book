@@ -17,6 +17,11 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useCallback, useRef } = React;
 
     const PANEL_ID = 'mistake-book';
+
+// 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
+// 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
+// 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
+const CLIENT_VERSION = '0.43.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -41,6 +46,7 @@ window.__ModuleLoader__.load({
       '@media (prefers-color-scheme:dark){.mb{--mb-surface:#2b2e33;--mb-accent:#98a3ff;--mb-accent-soft:color-mix(in srgb,#98a3ff 17%,transparent);--mb-ok:#5cc98a;--mb-warn:#e2ad55;--mb-danger:#ff8071;--mb-shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px rgba(0,0,0,.45)}}',
       '.mb-head{flex:0 0 auto;padding:8px 10px 0;border-bottom:1px solid var(--mb-line)}',
       '.mb-headtop{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}',
+  '.mb-ver{font-size:11px;font-weight:500;color:var(--mb-dim);letter-spacing:.02em}',
       '.mb-title{font-size:15px;font-weight:650;letter-spacing:.01em}',
       '.mb-stats{color:var(--mb-dim);font-size:12px;white-space:nowrap}',
       '.mb-stats b{font-weight:600;color:inherit}',
@@ -1367,6 +1373,9 @@ window.__ModuleLoader__.load({
       const [showFilters, setShowFilters] = useState(false);
       const [qLive, setQLive] = useState('');
       const [notice, setNotice] = useState(null);
+      // 注意：vocabOpen 必须排在 ListTab 状态表最后。渲染测试按 useState 声明顺序喂 seed，
+      // 插在中间会让后面所有用例的 seed 整体错位。
+      const [vocabOpen, setVocabOpen] = useState(false);
       const moreBtnRef = useRef(null);
       const morePop = usePopupAnchor(moreOpen, moreBtnRef, null, 150);   // 「更多」菜单同样 fixed 定位
 
@@ -1554,6 +1563,7 @@ window.__ModuleLoader__.load({
               } : { position: 'absolute', right: '0', top: '30px', zIndex: '30', minWidth: '150px', display: 'grid', gap: '4px' },
             },
               h('button.mb-btn', { type: 'button', onClick: () => { setImportOpen(true); setMoreOpen(false); } }, '批量导入'),
+              h('button.mb-btn', { type: 'button', onClick: () => { setVocabOpen(true); setMoreOpen(false); } }, '词表整理'),
               h('a.mb-btn', { href: rawUrl('/api/export.csv'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '导出 CSV'),
               h('a.mb-btn', { href: rawUrl('/api/export.json'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '备份 JSON')) : null)),
 
@@ -1652,6 +1662,9 @@ window.__ModuleLoader__.load({
         importOpen ? h(ImportDialog, {
           onClose: () => setImportOpen(false),
           onDone: () => { setImportOpen(false); void load(); },
+        }) : null,
+        vocabOpen ? h(VocabDialog, {
+          onClose: () => { setVocabOpen(false); void load(); },
         }) : null);
     }
 
@@ -1790,6 +1803,17 @@ window.__ModuleLoader__.load({
               : h('button.mb-btn.primary', { type: 'button', onClick: () => void submit(), disabled: busy || !text.trim() }, busy ? '导入中…' : '导入'),
             h('button.mb-btn' + (report && report.created ? '.primary' : ''), { type: 'button', onClick: close, disabled: busy },
               report && report.created ? '完成' : '关闭'))));
+    }
+
+    // 弹窗壳：同一个 VocabPanel 既在「学习」页底部折叠块里，也能从「更多」菜单直接打开，
+    // 免得只在学习页最底部出现时，用户根本不知道有这个功能。
+    function VocabDialog(props) {
+      return h('div.mb-mask', { onClick: props.onClose },
+        h('div.mb-dlg', { onClick: (e) => e.stopPropagation() },
+          h('h3', null, '词表整理'),
+          h(VocabPanel, null),
+          h('div.mb-formfoot', { style: { marginTop: '8px' } },
+            h('button.mb-btn.primary', { type: 'button', onClick: props.onClose }, '关闭'))));
     }
 
     /* ── 词表整理（v0.43）：学科 / 知识点 / 标签 / 来源 的合并与清理 ───── */
@@ -2661,6 +2685,7 @@ window.__ModuleLoader__.load({
           // 两行：标题 + 计数 + 主操作一行，页签单独一行（窄侧栏里挤一行会折成三行）
           h('div.mb-headtop', null,
             h('span.mb-title', null, '错题本'),
+            h('span.mb-ver', { title: '面板代码版本 v' + CLIENT_VERSION }, 'v' + CLIENT_VERSION.split('.').slice(0, 2).join('.')),
             h('span.mb-stats', null,
               '共 ', h('b', null, String(total)), ' 道 · 到期 ', h('b', null, String(due)), ' 道'),
             h('span.mb-spacer'),
@@ -2729,7 +2754,7 @@ window.__ModuleLoader__.load({
       // 宿主只读 inject / apply，多这一个键没有副作用。
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
-        StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog,
+        StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog, VocabDialog, CLIENT_VERSION,
         Dropdown, isLightColor, MathText, VocabPanel,
         setPendingListFilter: (patch) => { pendingListFilter = patch; },
       },
