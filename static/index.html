@@ -763,7 +763,7 @@ label input,label select,label textarea{width:100%}
         </label>
         <div class="imgfield">
           <div class="imghead">
-            <span>题目图片（可选，最多 6 张，每张 ≤2MB；截图后可直接 Ctrl+V 粘贴）</span>
+            <span>题目图片（可选，最多 6 张，每张 ≤8MB；截图后可直接 Ctrl+V 粘贴）</span>
             <label class="btnfile">添加图片<input id="f-image" type="file" accept="image/*" multiple></label>
           </div>
           <div class="imgs" id="img-list"></div>
@@ -2382,8 +2382,8 @@ label input,label select,label textarea{width:100%}
   });
   function useImageFile(file) {
     if (!file) { return; }
-    if (file.size > 2 * 1024 * 1024) {
-      alert('单张图片不能超过 2MB');
+    if (file.size > 8 * 1024 * 1024) {
+      alert('单张图片不能超过 8MB');
       return;
     }
     if (state.images.length >= 6) {

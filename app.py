@@ -55,15 +55,15 @@ SOURCE_HINTS = ("作业", "练习册", "周测", "月考", "期中", "期末", "
 # 复习评分 -> FSRS rating（1=again 2=hard 3=good 4=easy）
 RESULT_RATINGS = {"again": 1, "hard": 2, "good": 3, "easy": 4}
 DEDUP_WINDOW_SEC = 3                       # 防双击重复提交
-MAX_BODY = 4 * 1024 * 1024                 # 请求体上限 4MB（含图片 Data URL）
-MAX_IMAGE_CHARS = 2_800_000                # 单张 Data URL 字符上限，约 2MB 图片
+MAX_BODY = 64 * 1024 * 1024                 # 请求体上限 64MB（6 张 8MB 图 base64 后仍够）
+MAX_IMAGE_CHARS = 11_200_000                # 单张 Data URL 字符上限，约 8MB 图片
 MAX_IMAGES = 6                             # 一道题最多几张图（几何题两三张够用，再多是误操作）
 IMAGE_FIELDS = ("question", "wrong", "answer", "analysis")   # v0.30：图片归属哪一块
 MAX_IMAGES_PER_FIELD = 4                   # 单块最多几张
 # v0.15：图片从 base64 存库改成落盘（内容寻址），库里只留文件名。
 # 好处：数据库不再被图片撑大，备份/导出/列表都快；文件按 sha256 命名，天然去重。
 IMAGE_DIR_NAME = "images"                  # 与数据库文件同级的 images/ 目录
-MAX_IMAGE_BYTES = 2 * 1024 * 1024          # 解码后上限 2MB
+MAX_IMAGE_BYTES = 8 * 1024 * 1024          # 解码后上限 8MB
 IMAGE_EXTS = {"png": "png", "jpeg": "jpg", "jpg": "jpg",
               "gif": "gif", "webp": "webp", "bmp": "bmp"}
 IMAGE_MIME = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif",
@@ -385,7 +385,7 @@ def _decode_image(data_url: str) -> tuple:
     if not raw:
         raise ValidationError("图片内容为空")
     if len(raw) > MAX_IMAGE_BYTES:
-        raise ValidationError("图片过大（解码后上限 2MB）")
+        raise ValidationError("图片过大（解码后上限 8MB）")
     if not raw.startswith(IMAGE_MAGIC[ext]):
         raise ValidationError("图片内容与声明的格式不符")
     if ext == "webp" and raw[8:12] != b"WEBP":
@@ -627,7 +627,7 @@ def normalize(body: dict, base: dict | None = None) -> dict:
                 continue
             if entry.startswith("data:image/"):
                 if len(entry) > MAX_IMAGE_CHARS:
-                    raise ValidationError("单张图片过大（上限约 2MB）")
+                    raise ValidationError("单张图片过大（上限约 8MB）")
             elif not IMAGE_NAME_RE.match(entry):
                 raise ValidationError("图片标识不合法: %s" % entry[:40])
             cleaned.append({"value": entry, "field": field if field in IMAGE_FIELDS else ""})

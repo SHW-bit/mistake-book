@@ -631,7 +631,7 @@ window.__ModuleLoader__.load({
 
       const addFile = (file, field) => {
         if (!file || !/^image\//.test(String(file.type || ''))) return;
-        if (file.size > 2 * 1024 * 1024) { setImgError('图片要小于 2MB'); return; }
+        if (file.size > 8 * 1024 * 1024) { setImgError('图片要小于 8MB'); return; }
         const target = field || 'question';
         if (images.filter((img) => fieldOf(img) === target).length >= MAX_PER_FIELD) {
           setImgError('每块最多 ' + MAX_PER_FIELD + ' 张图');
