@@ -460,7 +460,7 @@ test('计划页：每道题是按钮，点了把 id 交给 onOpen（跳到错题
   assert.deepEqual(opened, [6]);
 });
 
-// ArenaView 的 hooks 顺序：show, subject, report, error, version
+// ArenaView 的 hooks 顺序：show, subject, report, error, version, notice, minWrong, clearStreak, ruleNote
 test('再战区：计数、规则、条目与斩题按钮', () => {
   const report = {
     counts: { zone: 2, cleared: 1, suspended: 0 },
@@ -580,4 +580,67 @@ test('公式块：渲染器未就绪时原样显示文本，class 可覆盖', ()
   const styled = render(plugin.__test__.MathText({ text: '纯文本', className: 'mb-q', style: { flex: '1' } }));
   assert.equal(styled.props.className, 'mb-q');
   assert.deepEqual(styled.props.style, { flex: '1' });
+});
+
+// v0.26：列表行加缩略图 + 左侧状态轨（对齐网页版），再战区可改门槛并给斩题回执，学习页缺口可点。
+test('列表行：有图时出缩略图，状态轨逾期优先于复习状态', () => {
+  const item = Object.assign({}, ITEM, { image_file: 'abc123.jpg', status: 'mastered' });
+  const seed = [Object.assign({}, FILTERS), [item], 1, false, '', {}, false, false, false, false, ''];
+  const { plugin } = loadPlugin(seed);
+  const dom = render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }));
+  const classes = classesOf(dom).join(' ');
+  assert.match(classes, /mb-item st-overdue/, '今天到期时状态轨必须是逾期色');
+  const thumb = nodesOf(dom, 'img').find((node) => /mb-listthumb/.test(node.props.className || ''));
+  assert.ok(thumb, '有 image_file 时要渲染缩略图');
+  assert.match(String(thumb.props.src), /abc123\.jpg/);
+});
+
+test('列表行：没有图就不留空位，状态轨退回复习状态', () => {
+  const item = Object.assign({}, ITEM, { next_review_at: '2026-11-30 10:00:00', status: 'reviewing' });
+  const seed = [Object.assign({}, FILTERS), [item], 1, false, '', {}, false, false, false, false, ''];
+  const { plugin } = loadPlugin(seed);
+  const dom = render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }));
+  assert.equal(nodesOf(dom, 'img').filter((node) => /mb-listthumb/.test(node.props.className || '')).length, 0);
+  assert.match(classesOf(dom).join(' '), /mb-item st-reviewing/);
+});
+
+test('再战区：两个门槛能在面板里改（数字输入，带当前值）', () => {
+  const report = { counts: { zone: 0, cleared: 0, suspended: 0 },
+    rule: { min_wrong: 3, clear_streak: 2 }, limit: 100, truncated: false, items: [] };
+  const meta = Object.assign({}, META, { settings: { arena_min_wrong: 3, arena_clear_streak: 2, daily_limit: 20 } });
+  const dom = render(loadPlugin(['zone', '', report, '', 0, null, '3', '2', '']).plugin.__test__.ArenaView({ meta }));
+  const text = textOf(dom).join('|');
+  assert.match(text, /规则设置/);
+  assert.match(text, /次进区/);
+  assert.match(text, /次出区/);
+  const numbers = nodesOf(dom, 'input').filter((node) => node.props.type === 'number');
+  assert.equal(numbers.length, 2, '两个门槛都是数字输入框');
+  assert.equal(numbers[0].props.value, '3');
+  assert.equal(numbers[1].props.value, '2');
+});
+
+test('再战区：斩题后给回执（可撤销），不是静默消失', () => {
+  const report = { counts: { zone: 1, cleared: 0, suspended: 0 },
+    rule: { min_wrong: 3, clear_streak: 2 }, limit: 100, truncated: false, items: [] };
+  const notice = { id: 6, text: '已斩题 #6：它已移出复习池，再战区里不再显示。', canUndo: true };
+  const dom = render(loadPlugin(['zone', '', report, '', 0, notice, '3', '2', '']).plugin.__test__.ArenaView({ meta: META }));
+  const text = textOf(dom).join('|');
+  assert.match(text, /已斩题 #6/);
+  assert.match(text, /撤销/);
+  assert.match(text, /知道了/);
+});
+
+test('学习页：变式缺口点得动，回程指向原题', () => {
+  const mastery = { points_total: 0, passed_total: 0,
+    thresholds: { min_mistakes: 2, min_stage: 3, min_stability: 7 },
+    band_counts: {}, pending: [], passed: [] };
+  const tree = { leaf_total: 0, depth_max: 0, unclassified: 0, roots: [] };
+  const gaps = { items: [{ id: 6, question: '求 lim', wrong: 3, variant_count: 0 }] };
+  const opened = [];
+  const dom = render(loadPlugin(['', mastery, tree, { items: [] }, gaps, '', '', '', 0])
+    .plugin.__test__.StudyView({ meta: META, onOpen: (id) => opened.push(id) }));
+  const rows = nodesOf(dom, 'button').filter((node) => /pickable/.test(node.props.className || ''));
+  assert.equal(rows.length, 1, '缺口行要渲染成可点按钮');
+  rows[0].props.onClick();
+  assert.deepEqual(opened, [6]);
 });

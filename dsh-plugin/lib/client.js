@@ -61,7 +61,14 @@ window.__ModuleLoader__.load({
       '.mb-list{overflow:auto;padding:6px;flex:1;min-height:0}',
       '.mb-item{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;font-family:inherit;font-size:13px;padding:8px 9px;border-radius:8px;cursor:pointer;border-left:2px solid transparent}',
       '.mb-item:hover{background:var(--mb-hover,rgba(127,127,127,.1))}',
+      // 左侧 2px 状态轨（与网页版同色系）：逾期 > 已斩 > 复习中/已掌握 > 未复习；选中时让位给强调色
+      '.mb-item.st-new{border-left-color:rgba(168,113,42,.55)}',
+      '.mb-item.st-reviewing{border-left-color:rgba(47,111,79,.5)}',
+      '.mb-item.st-mastered{border-left-color:rgba(43,122,75,.5)}',
+      '.mb-item.st-overdue{border-left-color:var(--mb-danger,#c0392b)}',
+      '.mb-item.st-suspended{border-left-color:rgba(127,127,127,.45)}',
       '.mb-item.on{background:var(--mb-hover,rgba(127,127,127,.16));border-left-color:var(--mb-accent,#3b6ef0)}',
+      '.mb-listthumb{width:40px;height:40px;flex:0 0 auto;object-fit:cover;border-radius:6px;border:1px solid var(--mb-line,rgba(127,127,127,.25))}',
       '.mb-row{display:flex;gap:7px;align-items:flex-start}',
       '.mb-pick{margin:2px 0 0;flex:0 0 auto}',
       '.mb-q{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45}',
@@ -746,10 +753,10 @@ window.__ModuleLoader__.load({
         } finally { setBusy(false); }
       };
 
-      // 从「计划」页点进来的详情：给一个回程入口，不然用户只能自己切页签找回去
+      // 从「计划」「学习」页点进来的详情：给一个回程入口，不然用户只能自己切页签找回去
       const backBar = props.onBack
         ? h('div.mb-toolbar', { style: { padding: '0 0 8px', borderBottom: '0' } },
-          h('button.mb-btn.mini', { type: 'button', onClick: props.onBack }, '← 返回计划'))
+          h('button.mb-btn.mini', { type: 'button', onClick: props.onBack }, props.backLabel || '← 返回计划'))
         : null;
       const missing = /不存在/.test(String(error)) ? '这道题已被删除或不存在（id=' + id + '）' : error;
 
@@ -1112,13 +1119,36 @@ window.__ModuleLoader__.load({
         } catch (failure) { setError(errText(failure)); }
       };
 
-      const row = (item) => h('div.mb-item' + (item.id === pickedId ? '.on' : ''), { key: item.id },
+      // 状态轨优先级与网页版一致：逾期最急，其次已斩（不在池里），再看复习状态。
+      // 注意不能复用 dueText：它对未来日期也返回 'MM-DD'（真值），也不认 mastered 的 null。
+      const railDays = (item) => {
+        const stamp = item && item.next_review_at ? Date.parse(String(item.next_review_at).replace(' ', 'T')) : NaN;
+        if (isNaN(stamp)) return null;
+        const d = new Date(stamp); d.setHours(0, 0, 0, 0);
+        const n = new Date(); n.setHours(0, 0, 0, 0);
+        return Math.round((d - n) / 86400000);
+      };
+      const railOf = (item) => {
+        if (item.suspended) return 'st-suspended';
+        const days = railDays(item);
+        if (days !== null && days <= 0) return 'st-overdue';
+        if (item.status === 'mastered') return 'st-mastered';
+        if (item.status === 'reviewing') return 'st-reviewing';
+        return 'st-new';
+      };
+
+      const row = (item) => h('div.mb-item.' + railOf(item) + (item.id === pickedId ? '.on' : ''), { key: item.id },
         h('div.mb-row', null,
           h('input.mb-pick', {
             type: 'checkbox', checked: !!picked[item.id],
             onChange: (event) => { event.stopPropagation(); togglePick(item.id); },
             onClick: (event) => event.stopPropagation(),
           }),
+          // 列表请求本来就带 thumbs=1（app.py 在 thumbs 时多回 image_file），这里直接用，不多发请求
+          item.image_file ? h('img.mb-listthumb', {
+            src: rawUrl('/api/images/' + encodeURIComponent(item.image_file)),
+            alt: '题目图片', loading: 'lazy',
+          }) : null,
           h('div', { style: { flex: '1 1 auto', minWidth: '0' }, onClick: () => onOpen(item.id, 'review') },
             h(MathText, { className: 'mb-q', text: clip(item.question, 120) }),
             h('div.mb-meta', null,
@@ -1392,6 +1422,7 @@ window.__ModuleLoader__.load({
 
     function StudyView(props) {
       const meta = props.meta || {};
+      const onOpen = props.onOpen;   // 变式缺口点进去看原题（App 传 openFromStudy）
       const [subject, setSubject] = useState('');
       const [mastery, setMastery] = useState(null);
       const [tree, setTree] = useState(null);
@@ -1511,7 +1542,10 @@ window.__ModuleLoader__.load({
         h('div.mb-block', null,
           h('div.mb-label', null, '变式缺口（错得多但没变式）'),
           gaps && gaps.items && gaps.items.length
-            ? h('div.mb-panel', null, gaps.items.map((row) => h('div.mb-hrow', { key: row.id },
+            ? h('div.mb-panel', null, gaps.items.map((row) => h('button.mb-hrow.pickable', {
+                key: row.id, type: 'button', title: '打开原题 #' + row.id,
+                onClick: () => { if (onOpen) onOpen(row.id); },
+              },
                 h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: clip(row.question, 70) }),
                 h('span.mb-htime', null, (row.variant_count ? '变式 ' + row.variant_count + ' 条' : '无变式') + ' · 错 ' + row.wrong + ' 次'))))
             : h('div.mb-empty', null, '暂时没有缺口。')));
@@ -1729,6 +1763,11 @@ window.__ModuleLoader__.load({
       const [report, setReport] = useState(null);
       const [error, setError] = useState('');
       const [version, setVersion] = useState(0);
+      const [notice, setNotice] = useState(null);
+      const savedSettings = meta.settings || {};
+      const [minWrong, setMinWrong] = useState(String(savedSettings.arena_min_wrong || 2));
+      const [clearStreak, setClearStreak] = useState(String(savedSettings.arena_clear_streak || 2));
+      const [ruleNote, setRuleNote] = useState('');
 
       useEffect(() => {
         let cancelled = false;
@@ -1738,9 +1777,45 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, [show, subject, version]);
 
+      // meta 是异步来的：别处改过设置后（props.onSettingsSaved 触发刷新）要把两个门槛同步过来
+      useEffect(() => {
+        setMinWrong(String((meta.settings || {}).arena_min_wrong || 2));
+        setClearStreak(String((meta.settings || {}).arena_clear_streak || 2));
+      }, [(meta.settings || {}).arena_min_wrong, (meta.settings || {}).arena_clear_streak]);
+
+      // 门槛改一次就写进后端 settings（范围 1–20，与 SETTING_BOUNDS 一致），下次打开还是这个数
+      const saveRule = async (rawMin, rawClear) => {
+        const min = Number(String(rawMin == null ? '' : rawMin).trim());
+        const clear = Number(String(rawClear == null ? '' : rawClear).trim());
+        const bad = (num) => !Number.isFinite(num) || Math.round(num) !== num || num < 1 || num > 20;
+        if (bad(min) || bad(clear)) {
+          setRuleNote('两个门槛都必须是 1–20 的整数');
+          setMinWrong(String((meta.settings || {}).arena_min_wrong || 2));
+          setClearStreak(String((meta.settings || {}).arena_clear_streak || 2));
+          return;
+        }
+        setRuleNote('');
+        setMinWrong(String(min));
+        setClearStreak(String(clear));
+        try {
+          await data('/api/settings', { method: 'PUT', body: JSON.stringify({ arena_min_wrong: min, arena_clear_streak: clear }) });
+          if (props.onSettingsSaved) props.onSettingsSaved();
+          setVersion(version + 1);
+        } catch (failure) { setRuleNote(errText(failure)); }
+      };
+
       const suspend = async (id) => {
         try {
           await data('/api/mistakes/' + id + '/suspend', { method: 'POST' });
+          setNotice({ id, text: '已斩题 #' + id + '：它已移出复习池，再战区里不再显示。', canUndo: true });
+          setVersion(version + 1);
+        } catch (failure) { setError(errText(failure)); }
+      };
+
+      const undo = async (id) => {
+        try {
+          await data('/api/mistakes/' + id + '/resume', { method: 'POST' });
+          setNotice(null);
           setVersion(version + 1);
         } catch (failure) { setError(errText(failure)); }
       };
@@ -1760,6 +1835,39 @@ window.__ModuleLoader__.load({
               (meta.subjects || []).map((name) => ({ value: name, label: name }))),
             onChange: (value) => setSubject(value),
           })),
+        notice ? h('div.mb-notice', null,
+          h('span', { style: { flex: '1 1 auto' } }, notice.text),
+          notice.canUndo ? h('button.mb-btn.mini', { type: 'button', onClick: () => void undo(notice.id) }, '撤销') : null,
+          h('button.mb-btn.mini', { type: 'button', onClick: () => setNotice(null) }, '知道了')) : null,
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '规则设置'),
+          h('div.mb-panel', null,
+            h('div.mb-row2', null,
+              h('label.mb-meta', { style: { marginTop: '0', gap: '6px' } },
+                h('span', null, '错满'),
+                h('input.mb-input', {
+                  type: 'number', min: '1', max: '20', step: '1', value: minWrong,
+                  style: { width: '64px', flex: '0 0 auto', minWidth: '0' },
+                  title: '累计答错几次进再战区（1-20）',
+                  onChange: (event) => setMinWrong(event.target.value),
+                  onBlur: (event) => void saveRule(event.target.value, clearStreak),
+                  onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); void saveRule(event.target.value, clearStreak); } },
+                }),
+                h('span', null, '次进区')),
+              h('label.mb-meta', { style: { marginTop: '0', gap: '6px' } },
+                h('span', null, '连对'),
+                h('input.mb-input', {
+                  type: 'number', min: '1', max: '20', step: '1', value: clearStreak,
+                  style: { width: '64px', flex: '0 0 auto', minWidth: '0' },
+                  title: '连对几次自动出区（1-20）',
+                  onChange: (event) => setClearStreak(event.target.value),
+                  onBlur: (event) => void saveRule(minWrong, event.target.value),
+                  onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); void saveRule(minWrong, event.target.value); } },
+                }),
+                h('span', null, '次出区'))),
+            ruleNote ? h('div.mb-note.bad', null, ruleNote) : h('div.mb-note', null, '改完自动保存（1–20 的整数）'))),
+
         h('div.mb-block', null,
           h('div.mb-panel', null,
             h('div.mb-meta', { style: { gap: '14px', marginTop: '0' } },
@@ -1861,7 +1969,8 @@ window.__ModuleLoader__.load({
       const [remind, setRemind] = useState(null);
       const [formBusy, setFormBusy] = useState(false);
       const [formError, setFormError] = useState('');
-      const [fromPlan, setFromPlan] = useState(false);   // 详情是否从「计划」页跳过来
+      // 详情从哪个页签跳过来的（'plan' / 'study'）；空串表示不是跳转进来的
+      const [returnTab, setReturnTab] = useState('');
 
       useEffect(() => {
         let cancelled = false;
@@ -1886,25 +1995,27 @@ window.__ModuleLoader__.load({
 
       const open = useCallback((id, mode) => {
         setCreating(false);
-        setFromPlan(false);
+        setReturnTab('');
         setDetailId(id);
         setDetailMode(mode === 'edit' ? 'edit' : 'review');
       }, []);
 
-      // 计划页点某道题 → 切到错题页并打开它的详情；返回时回到计划页
-      const openFromPlan = useCallback((id) => {
+      // 计划页 / 学习页点某道题 → 切到错题页并打开它的详情；返回时回到来的那一页
+      const openFrom = useCallback((id, from) => {
         setCreating(false);
-        setFromPlan(true);
+        setReturnTab(from);
         setDetailId(id);
         setDetailMode('review');
         setTab('list');
       }, []);
+      const openFromPlan = useCallback((id) => openFrom(id, 'plan'), [openFrom]);
+      const openFromStudy = useCallback((id) => openFrom(id, 'study'), [openFrom]);
 
-      const backToPlan = useCallback(() => {
-        setFromPlan(false);
+      const backTo = useCallback(() => {
+        setReturnTab('');
         setDetailId(0);
-        setTab('plan');
-      }, []);
+        setTab(returnTab || 'list');
+      }, [returnTab]);
 
       // 设置改完要让 meta 里的 settings 跟上，否则下次进计划页会拿旧上限
       const refreshMeta = useCallback(() => {
@@ -1933,7 +2044,7 @@ window.__ModuleLoader__.load({
           h('span.mb-stats', null, '共 ' + total + ' 道 · 到期 ' + due + ' 道'),
           h('div.mb-tabs', null, TABS.map((pair) => h('button', {
             key: pair[0], type: 'button', className: tab === pair[0] ? 'on' : '',
-            onClick: () => { setTab(pair[0]); setCreating(false); setFromPlan(false); },
+            onClick: () => { setTab(pair[0]); setCreating(false); setReturnTab(''); },
           }, pair[1]))),
           h('span.mb-spacer'),
           h('button.mb-btn.primary', { type: 'button', onClick: () => { setCreating(true); setDetailId(0); setTab('list'); } }, '＋ 新建')),
@@ -1956,13 +2067,14 @@ window.__ModuleLoader__.load({
                 key: detailId + ':' + detailMode,
                 id: detailId, mode: detailMode, meta,
                 onChanged: reload, SessionProvider, renderFactorySlot,
-                onBack: fromPlan ? backToPlan : null,
+                onBack: returnTab ? backTo : null,
+                backLabel: returnTab === 'study' ? '← 返回学习' : '← 返回计划',
               }) :
                 h('div.mb-empty', null, '从左栏选一道错题，或点「＋ 新建」'))) :
-          tab === 'study' ? h(StudyView, { meta }) :
+          tab === 'study' ? h(StudyView, { meta, onOpen: openFromStudy }) :
             tab === 'plan' ? h(PlanView, { meta, onOpen: openFromPlan, onSettingsSaved: refreshMeta }) :
               tab === 'an' ? h(AnalyticsView, null) :
-                tab === 'arena' ? h(ArenaView, { meta }) :
+                tab === 'arena' ? h(ArenaView, { meta, onSettingsSaved: refreshMeta }) :
                   h(TrashView, null));
     }
 
