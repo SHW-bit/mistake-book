@@ -239,6 +239,14 @@ window.__ModuleLoader__.load({
       '.mb-thumb{position:relative;width:96px;height:96px;border-radius:var(--mb-r);overflow:hidden;border:1px solid var(--mb-line)}',
       '.mb-thumb img{width:100%;height:100%;object-fit:cover;display:block}',
       '.mb-thumb button{position:absolute;top:3px;right:3px;width:19px;height:19px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:1;cursor:pointer}',
+      /* v0.32 点图放大：命令式浮层，不进 React 状态，免得动到组件的 hooks 顺序 */
+      '.mb-thumb,.mb-fbthumb img{cursor:zoom-in}',
+      '.mb-lightbox{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.82);opacity:0;pointer-events:none;transition:opacity .12s ease}',
+      '.mb-lightbox.on{opacity:1;pointer-events:auto}',
+      '.mb-lightbox-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;background:#111;box-shadow:0 10px 44px rgba(0,0,0,.55)}',
+      '.mb-lightbox-close{position:absolute;top:10px;right:12px;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:20px;line-height:32px;cursor:pointer}',
+      '.mb-lightbox-close:hover{background:rgba(255,255,255,.3)}',
+      'html.mb-lock{overflow:hidden}',
       '.mb-dayhead{display:flex;gap:8px;align-items:baseline;margin:16px 0 8px;font-size:12px;color:var(--mb-faint)}',
       '.mb-dayhead b{color:inherit;font-size:13.5px;font-weight:650}',
       '.mb-remind{display:flex;align-items:center;gap:8px;padding:8px 14px;background:color-mix(in srgb,var(--mb-warn) 12%,transparent);border-bottom:1px solid color-mix(in srgb,var(--mb-warn) 26%,transparent);font-size:12px}',
@@ -292,6 +300,52 @@ window.__ModuleLoader__.load({
     /** 导出/下载类接口走 raw=1：代理把上游响应体原样吐出，浏览器才会当文件下载。 */
     function rawUrl(path) {
       return DATA_ENDPOINT + '?raw=1&path=' + encodeURIComponent(path);
+    }
+
+    /**
+     * 点图片放大。用命令式 DOM 浮层而不是组件 state —— DetailPane / ItemForm 的 hooks
+     * 顺序被渲染测试的 seed 写死了，加一个 useState 就会把测试全打翻。
+     * 交互：点背景或右上角 × 关闭，Esc 关闭。
+     */
+    let lightboxEl = null;
+    function hideLightbox() {
+      if (lightboxEl) lightboxEl.classList.remove('on');
+      if (typeof document !== 'undefined') document.documentElement.classList.remove('mb-lock');
+    }
+    function ensureLightbox() {
+      if (typeof document === 'undefined' || !document.body) return null;
+      if (lightboxEl && document.body.contains(lightboxEl)) return lightboxEl;
+      const wrap = document.createElement('div');
+      wrap.className = 'mb-lightbox';
+      wrap.setAttribute('role', 'dialog');
+      wrap.setAttribute('aria-modal', 'true');
+      const img = document.createElement('img');
+      img.className = 'mb-lightbox-img';
+      img.alt = '放大的图片';
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'mb-lightbox-close';
+      close.textContent = '×';
+      close.setAttribute('aria-label', '关闭');
+      wrap.appendChild(img);
+      wrap.appendChild(close);
+      wrap.addEventListener('click', (event) => {
+        if (event.target === wrap || event.target === close) hideLightbox();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hideLightbox();
+      });
+      document.body.appendChild(wrap);
+      lightboxEl = wrap;
+      return wrap;
+    }
+    function openLightbox(src) {
+      const wrap = ensureLightbox();
+      if (!wrap || !src) return;
+      const img = wrap.querySelector('.mb-lightbox-img');
+      if (img) img.src = src;
+      wrap.classList.add('on');
+      if (typeof document !== 'undefined') document.documentElement.classList.add('mb-lock');
     }
 
     function clip(text, max) {
@@ -724,7 +778,10 @@ window.__ModuleLoader__.load({
         return h('div.mb-fbimgs', null, list.map((img) => h('div.mb-fbthumb', {
           key: String(img.file || img.src || '').slice(-28) + ':' + field,
         },
-        h('img', { src: img.src, alt: '附图' }),
+        h('img', {
+          src: img.src, alt: '附图', title: '点击放大',
+          onClick: () => openLightbox(img.src),
+        }),
         h('button', { type: 'button', onClick: () => removeImage(img), 'aria-label': '移除这张图' }, '×'))));
       };
 
@@ -929,7 +986,10 @@ window.__ModuleLoader__.load({
       const answerImgs = imgsFor(['answer']);
       const analysisImgs = imgsFor(['analysis']);
       const imgRow = (list) => (list.length ? h('div.mb-imgs', null, list.map((img, index) =>
-        h('a.mb-thumb', { key: (img.file || 'img') + ':' + index, href: imgSrc(img), target: '_blank', rel: 'noreferrer' },
+        h('a.mb-thumb', {
+          key: (img.file || 'img') + ':' + index, href: imgSrc(img), title: '点击放大',
+          onClick: (event) => { event.preventDefault(); openLightbox(imgSrc(img)); },
+        },
           h('img', {
             src: imgSrc(img), alt: '图片 ' + (index + 1), loading: 'lazy',
             // 万一宿主 CSP 不放 data:，退回 raw 通道（v0.32 起那条通道已经是二进制安全的）

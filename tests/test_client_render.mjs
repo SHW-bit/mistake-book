@@ -334,6 +334,54 @@ test('详情：答案折叠 → 展开后四档评分、断点下拉、变式、
   assert.match(text, /极限/);
 });
 
+// v0.32：图片按 field 归位；点图放大走命令式浮层（data: URL 顶层跳转会被浏览器拦，所以不再开新标签）
+test('详情：图片按 field 归位，每张都能点开放大', () => {
+  const imgs = [
+    { file: 'a.png', field: 'question', data: 'data:image/jpeg;base64,AAA' },
+    { file: 'b.png', field: 'wrong', data: 'data:image/jpeg;base64,BBB' },
+    { file: 'c.png', field: 'answer', data: 'data:image/jpeg;base64,CCC' },
+    { file: 'd.png', field: 'analysis', data: 'data:image/jpeg;base64,DDD' },
+  ];
+  const item = Object.assign({}, DETAIL, { images: imgs });
+  const dom = render(loadPlugin([item, '', true, false, false, null, '', null, null])
+    .plugin.__test__.DetailPane({ id: 6, mode: 'review', meta: META }));
+
+  const thumbs = nodesOf(dom, 'a').filter((n) => /(^|\s)mb-thumb(\s|$)/.test(n.props.className || ''));
+  assert.equal(thumbs.length, 4, '四张图各一个缩略图');
+  for (const node of thumbs) {
+    assert.equal(typeof node.props.onClick, 'function', '每张图都要能点开放大');
+    assert.ok(!node.props.target, '不该再开新标签');
+    assert.match(node.props.href, /^data:image/);
+  }
+
+  const cardByHead = (head) => nodesOf(dom, 'div').find((n) => {
+    const first = (n.children || [])[0];
+    return /^mb-card/.test(n.props.className || '') && first && first.tag === 'div'
+      && /mb-cardhead/.test(first.props.className || '') && textOf(first).join('') === head;
+  });
+  const imgsOf = (head) => {
+    const card = cardByHead(head);
+    assert.ok(card, '找不到卡片：' + head);
+    return nodesOf(card, 'img').map((n) => n.props.src);
+  };
+  assert.deepEqual(imgsOf('题目 #6'), ['data:image/jpeg;base64,AAA'], '题目卡只放 question 的图');
+  assert.deepEqual(imgsOf('我的答案'), ['data:image/jpeg;base64,BBB'], 'wrong 的图留在我的答案');
+  assert.deepEqual(imgsOf('正确答案'), ['data:image/jpeg;base64,CCC', 'data:image/jpeg;base64,DDD'],
+    'answer 与 analysis 都归在答案卡里');
+});
+
+test('录入表单：已有图片缩略图可点开放大', () => {
+  const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const seed = [form, [{ src: 'data:image/png;base64,XXX', field: 'question' }], false, ''];
+  const dom = render(loadPlugin(seed).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const thumbs = nodesOf(dom, 'img').filter((n) => /^data:image/.test(n.props.src || ''));
+  assert.equal(thumbs.length, 1, '一张已有图片');
+  assert.equal(typeof thumbs[0].props.onClick, 'function', '缩略图要能点开');
+});
+
 test('详情：编辑模式直接进表单，且不显示评分条', () => {
   const seed = [DETAIL, '', true, true, false, null, '', null, null];
   const dom = render(loadPlugin(seed).plugin.__test__.DetailPane({ id: 6, mode: 'edit', meta: META }));

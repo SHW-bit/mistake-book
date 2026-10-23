@@ -432,6 +432,12 @@ label input,label select,label textarea{width:100%}
   .imgthumb img{width:100%;height:100%;object-fit:cover;display:block}
   .imgthumb .rm{position:absolute;top:3px;right:3px;width:20px;height:20px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(28,28,25,.72);color:#fff;font-size:12px;line-height:20px;cursor:pointer}
   .imgthumb .rm:hover{background:rgba(28,28,25,.92)}
+  .imgthumb img{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.82);opacity:0;pointer-events:none;transition:opacity .12s ease}
+  .lightbox.on{opacity:1;pointer-events:auto}
+  .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;background:#111;box-shadow:0 10px 44px rgba(0,0,0,.55)}
+  .lightbox button{position:absolute;top:10px;right:12px;width:32px;height:32px;min-height:0;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:20px;line-height:32px;cursor:pointer}
+  .lightbox button:hover{background:rgba(255,255,255,.3)}
   .imgempty{font-size:12px;color:var(--ink-3)}
   .row-inline{display:flex;gap:6px}
   .row-inline select{flex:1 1 auto;min-width:0}
@@ -2496,6 +2502,41 @@ label input,label select,label textarea{width:100%}
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { closeMore(); }
   });
+
+  // ---- 点图放大（v0.32）：表单里的缩略图点一下进浮层，Esc / 点背景 / 点 × 关闭 ----
+  var lightbox = null;
+  function closeLightbox() {
+    if (!lightbox) { return; }
+    lightbox.classList.remove('on');
+    document.documentElement.style.overflow = '';
+  }
+  function openLightbox(src, alt) {
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.className = 'lightbox';
+      lightbox.setAttribute('role', 'dialog');
+      lightbox.innerHTML = '<img alt=""><button type="button" aria-label="关闭">×</button>';
+      lightbox.addEventListener('click', function (e) {
+        if (e.target === lightbox || e.target.tagName === 'BUTTON') { closeLightbox(); }
+      });
+      document.body.appendChild(lightbox);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { closeLightbox(); }
+      });
+    }
+    var img = lightbox.querySelector('img');
+    img.src = src;
+    img.alt = alt || '';
+    lightbox.classList.add('on');
+    document.documentElement.style.overflow = 'hidden';
+  }
+  document.addEventListener('click', function (e) {
+    var thumb = e.target.closest && e.target.closest('.imgthumb img');
+    if (!thumb) { return; }
+    e.preventDefault();
+    e.stopPropagation();
+    openLightbox(thumb.src, thumb.alt);
+  }, true);
 
   function setFilterOpen(on) {
     $('#filter-panel').hidden = !on;
