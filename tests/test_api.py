@@ -1174,7 +1174,8 @@ class ApiTest(unittest.TestCase):
         status, body = self.call("GET", "/api/settings")
         self.assertEqual(status, 200, body)
         data = body["data"]
-        self.assertEqual(data["values"], {"arena_min_wrong": 2, "arena_clear_streak": 2})
+        self.assertEqual(data["values"], {"arena_min_wrong": 2, "arena_clear_streak": 2,
+                                          "daily_limit": 20})
         self.assertIn("arena_min_wrong", data["labels"])
         self.assertEqual(data["bounds"]["arena_min_wrong"], [1, 20])
 
@@ -1226,6 +1227,46 @@ class ApiTest(unittest.TestCase):
             self.assertIn(fragment, body["error"]["message"])
         _, body = self.call("GET", "/api/settings")
         self.assertEqual(body["data"]["values"]["arena_min_wrong"], 2)
+
+    def test_settings_daily_limit_used_by_plan(self):
+        # 3 道题都到期，上限调到 1 之后 /api/plan 不传 limit 就只排 1 道
+        for i in range(3):
+            mid = self.create(question="上限题%d" % i)["id"]
+            self._make_due(mid, 1)
+
+        status, body = self.call("PUT", "/api/settings", {"daily_limit": 1})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["data"]["daily_limit"], 1)
+
+        _, body = self.call("GET", "/api/plan")
+        self.assertEqual(body["data"]["daily_limit"], 1)
+        self.assertEqual(body["data"]["today_count"], 1)
+        # 塞不下的顺延到明天，而不是丢掉
+        self.assertEqual(body["data"]["total"], 3)
+        self.assertEqual(body["data"]["days"][1]["count"], 1)
+        self.assertEqual(body["data"]["overflow"], 0)
+
+        # 显式传 limit 仍然优先于 settings
+        _, body = self.call("GET", "/api/plan?limit=3")
+        self.assertEqual(body["data"]["daily_limit"], 3)
+        self.assertEqual(body["data"]["today_count"], 3)
+
+        # 越界与非整数都要 400，且不改动已存的值
+        for payload, fragment in (({"daily_limit": 0}, "1-200"),
+                                  ({"daily_limit": 201}, "1-200"),
+                                  ({"daily_limit": "x"}, "整数")):
+            status, body = self.call("PUT", "/api/settings", payload)
+            self.assertEqual(status, 400, body)
+            self.assertIn(fragment, body["error"]["message"])
+        _, body = self.call("GET", "/api/settings")
+        self.assertEqual(body["data"]["values"]["daily_limit"], 1)
+
+        # CLI 也能改
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(["--db", self.db, "settings", "--daily-limit", "7"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["values"]["daily_limit"], 7)
 
     def test_mb_settings(self):
         out = io.StringIO()

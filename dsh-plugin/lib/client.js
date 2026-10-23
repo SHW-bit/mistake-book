@@ -94,6 +94,27 @@ window.__ModuleLoader__.load({
       '.mb-input:focus{outline:2px solid var(--mb-accent,#3b6ef0);outline-offset:-1px}',
       'input.mb-input{flex:1 1 130px;min-width:100px}',
       'select.mb-input{flex:0 1 auto;max-width:132px}',
+      // v0.24 自定义下拉（原生 select 没法控制弹层样式，18 处统一换成一个组件）
+      '.mb-dd{position:relative;flex:0 1 auto;min-width:104px}',
+      '.mb-form .mb-dd{width:100%;min-width:0}',
+      '.mb-dd-btn{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;height:26px;border-radius:7px;border:1px solid var(--mb-line,rgba(127,127,127,.3));background:transparent;color:inherit;font-family:inherit;font-size:12px;padding:0 7px;cursor:pointer;text-align:left}',
+      '.mb-form .mb-dd-btn{height:auto;padding:6px 8px;font-size:13px;border-radius:8px}',
+      '.mb-dd-btn:hover{background:var(--mb-hover,rgba(127,127,127,.08))}',
+      '.mb-dd-btn:focus-visible{outline:2px solid var(--mb-accent,#3b6ef0);outline-offset:-1px}',
+      '.mb-dd-btn[disabled]{opacity:.55;cursor:not-allowed}',
+      '.mb-dd-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.mb-dd-caret{flex:0 0 auto;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;opacity:.55;transition:transform .12s}',
+      '.mb-dd.open .mb-dd-caret{transform:rotate(180deg)}',
+      '.mb-dd-pop{position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;max-height:240px;overflow:auto;background:var(--mb-surface,#fff);border:1px solid var(--mb-line,rgba(127,127,127,.3));border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.16);padding:4px;display:grid;gap:2px}',
+      '.mb-dd-opt{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;border:0;background:transparent;color:inherit;font-family:inherit;font-size:12px;text-align:left;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
+      '.mb-dd-opt.active{background:var(--mb-hover,rgba(127,127,127,.14))}',
+      '.mb-dd-opt.on{font-weight:600}',
+      '.mb-dd-opt[disabled]{opacity:.45;cursor:not-allowed}',
+      '.mb-dd-tick{margin-left:auto;opacity:.75;font-size:11px}',
+      '.mb-dd-empty{padding:6px 8px;font-size:12px;opacity:.6}',
+      '.mb-hrow.pickable{width:100%;box-sizing:border-box;border:0;background:transparent;color:inherit;font-family:inherit;font-size:12px;text-align:left;cursor:pointer;border-radius:6px;padding:4px 6px}',
+      '.mb-hrow.pickable:hover{background:var(--mb-hover,rgba(127,127,127,.1))}',
+      '.mb-hrow.pickable:focus-visible{outline:2px solid var(--mb-accent,#3b6ef0);outline-offset:-2px}',
       '.mb-filters{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 10px;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.18));background:var(--mb-subtle,rgba(127,127,127,.04))}',
       '.mb-filters .full{grid-column:1 / -1}',
       '.mb-form{overflow:auto;padding:14px 16px;display:grid;gap:10px;align-content:start}',
@@ -403,6 +424,7 @@ window.__ModuleLoader__.load({
       const fileRef = useRef(null);
 
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
+      const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
 
       const addFile = useCallback((file) => {
         if (!file || !/^image\//.test(String(file.type || ''))) return;
@@ -467,9 +489,12 @@ window.__ModuleLoader__.load({
             choices('mb-dl-knowledge', meta && meta.knowledge))),
         h('div.mb-row2', null,
           h('div.mb-field', null, h('span', null, '错因分类'),
-            h('select', { value: form.mistake_type, onChange: set('mistake_type') },
-              h('option', { value: '' }, '（不填）'),
-              ((meta && meta.mistake_types) || []).map((value) => h('option', { key: value, value }, value)))),
+            h(Dropdown, {
+              value: form.mistake_type, placeholder: '（不填）',
+              options: [{ value: '', label: '（不填）' }].concat(
+                ((meta && meta.mistake_types) || []).map((value) => ({ value, label: value }))),
+              onChange: setValue('mistake_type'),
+            })),
           h('div.mb-field', null, h('span', null, '来源'),
             h('input', { value: form.source, onChange: set('source'), list: 'mb-dl-source' }),
             choices('mb-dl-source', meta && meta.sources))),
@@ -480,12 +505,18 @@ window.__ModuleLoader__.load({
             h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' }))),
         h('div.mb-row2', null,
           h('div.mb-field', null, h('span', null, '难度'),
-            h('select', { value: form.difficulty, onChange: set('difficulty') },
-              [1, 2, 3, 4, 5].map((n) => h('option', { key: n, value: String(n) }, n + ' 星')))),
+            h(Dropdown, {
+              value: form.difficulty,
+              options: [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + ' 星' })),
+              onChange: setValue('difficulty'),
+            })),
           h('div.mb-field', null, h('span', null, '状态'),
-            h('select', { value: form.status, onChange: set('status') },
-              [['new', '未复习'], ['reviewing', '复习中'], ['mastered', '已掌握']].map((pair) =>
-                h('option', { key: pair[0], value: pair[0] }, pair[1]))))),
+            h(Dropdown, {
+              value: form.status,
+              options: [['new', '未复习'], ['reviewing', '复习中'], ['mastered', '已掌握']]
+                .map((pair) => ({ value: pair[0], label: pair[1] })),
+              onChange: setValue('status'),
+            }))),
         h('div.mb-block', null,
           h('div.mb-field', null, h('span', null, '题目图片（≤2MB，可多张，截图后 Ctrl+V 粘贴）'),
             h('input', { ref: fileRef, type: 'file', accept: 'image/*', onChange: (e) => {
@@ -598,6 +629,13 @@ window.__ModuleLoader__.load({
         } finally { setBusy(false); }
       };
 
+      // 从「计划」页点进来的详情：给一个回程入口，不然用户只能自己切页签找回去
+      const backBar = props.onBack
+        ? h('div.mb-toolbar', { style: { padding: '0 0 8px', borderBottom: '0' } },
+          h('button.mb-btn.mini', { type: 'button', onClick: props.onBack }, '← 返回计划'))
+        : null;
+      const missing = /不存在/.test(String(error)) ? '这道题已被删除或不存在（id=' + id + '）' : error;
+
       if (ai) {
         return h(AiPane, {
           SessionProvider, renderFactorySlot,
@@ -605,8 +643,8 @@ window.__ModuleLoader__.load({
           onBack: () => setAi(null),
         });
       }
-      if (error) return h('div.mb-empty', null, error);
-      if (!item) return h('div.mb-empty', null, '加载中…');
+      if (error) return h('div', null, backBar, h('div.mb-empty', null, missing));
+      if (!item) return h('div', null, backBar, h('div.mb-empty', null, '加载中…'));
       if (editing) {
         return h(ItemForm, {
           key: 'edit:' + id,
@@ -617,6 +655,7 @@ window.__ModuleLoader__.load({
 
       const images = Array.isArray(item.images) ? item.images : [];
       return h('div.mb-detail', null,
+        backBar,
         h('div.mb-block', null,
           h('div.mb-label', null, '题目 #' + item.id),
           h('div.mb-text', null, item.question || '')),
@@ -661,12 +700,11 @@ window.__ModuleLoader__.load({
           h('div.mb-label', null, '这次记得怎么样'),
           h('div.mb-step', null,
             h('span', null, '错在哪一步'),
-            h('select.mb-input', {
-              value: step, disabled: busy,
-              onChange: (event) => setStep(event.target.value),
-            },
-              h('option', { value: '' }, '不记录'),
-              STEPS.map((value) => h('option', { key: value, value }, value)))),
+            h(Dropdown, {
+              value: step, disabled: busy, placeholder: '不记录',
+              options: [{ value: '', label: '不记录' }].concat(STEPS.map((value) => ({ value, label: value }))),
+              onChange: (value) => setStep(value),
+            })),
           h('div.mb-rate', null,
             [['again', '忘了'], ['hard', '模糊'], ['good', '记得'], ['easy', '简单']].map((pair) =>
               h('button', { key: pair[0], type: 'button', onClick: () => void rate(pair[0]), disabled: busy },
@@ -683,6 +721,92 @@ window.__ModuleLoader__.load({
             h('button.mb-btn', { type: 'button', onClick: () => void remove(), disabled: busy }, '删除'),
             h('button.mb-btn.primary', { type: 'button', onClick: () => void startAi(), disabled: busy },
               busy ? '正在建会话…' : '让 AI 带我复习这道'))));
+    }
+
+    /* ── 自定义下拉（v0.24）────────────────────────────────────────────── */
+
+    // 原生 select 的弹层没法用 CSS 管，长选项会被系统截断；这里用按钮 + 弹层自己实现。
+    // 键盘：↑↓ 移动、Enter/Space 选中、Esc 关闭；点外部关闭；禁用项跳过。
+    function Dropdown(props) {
+      const list = props.options || [];
+      const cur = props.value == null ? '' : String(props.value);
+      const [open, setOpen] = useState(false);
+      const [active, setActive] = useState(-1);
+      const rootRef = useRef(null);
+
+      const currentIndex = list.findIndex((opt) => String(opt.value) === cur);
+      const currentLabel = currentIndex >= 0 ? list[currentIndex].label : (props.placeholder || '请选择');
+
+      useEffect(() => {
+        if (!open || typeof document === 'undefined') return undefined;
+        const onDown = (event) => {
+          const node = rootRef.current;
+          if (node && node.contains && node.contains(event.target)) return;
+          setOpen(false);
+        };
+        document.addEventListener('mousedown', onDown, true);
+        return () => document.removeEventListener('mousedown', onDown, true);
+      }, [open]);
+
+      const pick = (opt) => {
+        if (!opt || opt.disabled) return;
+        setOpen(false);
+        setActive(-1);
+        if (String(opt.value) !== cur && props.onChange) props.onChange(opt.value);
+      };
+
+      const move = (delta) => {
+        if (!list.length) return;
+        let next = active;
+        for (let i = 0; i < list.length; i += 1) {
+          next = (next + delta + list.length) % list.length;
+          if (!list[next].disabled) break;
+        }
+        setActive(next);
+      };
+
+      const onKeyDown = (event) => {
+        const key = event.key;
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
+          event.preventDefault();
+          if (!open) { setOpen(true); setActive(currentIndex); return; }
+          move(key === 'ArrowDown' ? 1 : -1);
+          return;
+        }
+        if (key === 'Enter' || key === ' ') {
+          event.preventDefault();
+          if (!open) { setOpen(true); setActive(currentIndex); return; }
+          if (active >= 0 && list[active]) pick(list[active]);
+          return;
+        }
+        if (key === 'Escape' && open) { event.preventDefault(); setOpen(false); }
+      };
+
+      return h('div', {
+        className: 'mb-dd' + (open ? ' open' : '') + (props.className ? ' ' + props.className : ''),
+        ref: rootRef, title: props.title,
+      },
+        h('button.mb-dd-btn', {
+          type: 'button', disabled: !!props.disabled,
+          'aria-haspopup': 'listbox', 'aria-expanded': open ? 'true' : 'false',
+          onClick: () => { if (!props.disabled) { setOpen(!open); setActive(currentIndex); } },
+          onKeyDown,
+        },
+          h('span.mb-dd-label', null, currentLabel),
+          h('span.mb-dd-caret', { 'aria-hidden': 'true' })),
+        open ? h('div.mb-dd-pop', { role: 'listbox' },
+          list.length ? list.map((opt, index) => h(
+            'button.mb-dd-opt' + (index === active ? '.active' : '') + (String(opt.value) === cur ? '.on' : ''),
+            {
+              key: String(opt.value) + ':' + index, type: 'button', role: 'option',
+              'aria-selected': String(opt.value) === cur ? 'true' : 'false',
+              disabled: !!opt.disabled,
+              onClick: () => pick(opt),
+              onMouseEnter: () => setActive(index),
+            },
+            h('span', null, opt.label),
+            String(opt.value) === cur ? h('span.mb-dd-tick', { 'aria-hidden': 'true' }, '✓') : null)) :
+          h('div.mb-dd-empty', null, '无可选项')) : null);
     }
 
     /* ── 错题列表（列表 + 筛选 + 批量）────────────────────────────────── */
@@ -818,24 +942,36 @@ window.__ModuleLoader__.load({
               h('a.mb-btn', { href: rawUrl('/api/export.json'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '备份 JSON')) : null)),
 
         showFilters ? h('div.mb-filters', null,
-          h('select.mb-input', { value: filters.subject, onChange: (event) => patch({ subject: event.target.value }) },
-            h('option', { value: '' }, '全部学科'),
-            ((meta && meta.subjects) || []).map((name) => h('option', { key: name, value: name }, name))),
-          h('select.mb-input', { value: filters.status, onChange: (event) => patch({ status: event.target.value }) },
-            h('option', { value: '' }, '全部状态'),
-            h('option', { value: 'new' }, '未复习'),
-            h('option', { value: 'reviewing' }, '复习中'),
-            h('option', { value: 'mastered' }, '已掌握')),
-          h('select.mb-input', { value: filters.mistake_type, onChange: (event) => patch({ mistake_type: event.target.value }) },
-            h('option', { value: '' }, '全部错因'),
-            ((meta && meta.mistake_types) || []).map((name) => h('option', { key: name, value: name }, name))),
-          h('select.mb-input', { value: filters.range, onChange: (event) => patch({ range: event.target.value }) },
-            h('option', { value: '' }, '不限时间'),
-            h('option', { value: 'week' }, '近一周'),
-            h('option', { value: 'month' }, '近一月')),
-          h('select.mb-input', { value: filters.knowledge, onChange: (event) => patch({ knowledge: event.target.value }) },
-            h('option', { value: '' }, '全部知识点'),
-            ((meta && meta.knowledge) || []).map((name) => h('option', { key: name, value: name }, name))),
+          h(Dropdown, {
+            value: filters.subject, placeholder: '全部学科',
+            options: [{ value: '', label: '全部学科' }].concat(
+              ((meta && meta.subjects) || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => patch({ subject: value }),
+          }),
+          h(Dropdown, {
+            value: filters.status, placeholder: '全部状态',
+            options: [{ value: '', label: '全部状态' }, { value: 'new', label: '未复习' },
+              { value: 'reviewing', label: '复习中' }, { value: 'mastered', label: '已掌握' }],
+            onChange: (value) => patch({ status: value }),
+          }),
+          h(Dropdown, {
+            value: filters.mistake_type, placeholder: '全部错因',
+            options: [{ value: '', label: '全部错因' }].concat(
+              ((meta && meta.mistake_types) || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => patch({ mistake_type: value }),
+          }),
+          h(Dropdown, {
+            value: filters.range, placeholder: '不限时间',
+            options: [{ value: '', label: '不限时间' }, { value: 'week', label: '近一周' },
+              { value: 'month', label: '近一月' }],
+            onChange: (value) => patch({ range: value }),
+          }),
+          h(Dropdown, {
+            value: filters.knowledge, placeholder: '全部知识点',
+            options: [{ value: '', label: '全部知识点' }].concat(
+              ((meta && meta.knowledge) || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => patch({ knowledge: value }),
+          }),
           h('input.mb-input', { placeholder: '标签（精确匹配）', value: filters.tag, onChange: (event) => patch({ tag: event.target.value }) }),
           h('label.mb-meta.full', { style: { gap: '12px', marginTop: '2px' } },
             h('label', null, h('input', { type: 'checkbox', checked: filters.scopeQ, onChange: (e) => patch({ scopeQ: e.target.checked }) }), ' 只搜题干'),
@@ -916,31 +1052,40 @@ window.__ModuleLoader__.load({
           h('div.mb-form', { style: { padding: '0' } },
             h('div.mb-row2', null,
               h('div.mb-field', null, h('span', null, '状态'),
-                h('select', { value: fields.status, onChange: (e) => setFields(Object.assign({}, fields, { status: e.target.value })) },
-                  h('option', { value: '' }, '不改'),
-                  h('option', { value: 'new' }, '未复习'),
-                  h('option', { value: 'reviewing' }, '复习中'),
-                  h('option', { value: 'mastered' }, '已掌握'))),
+                h(Dropdown, {
+                  value: fields.status, placeholder: '不改',
+                  options: [{ value: '', label: '不改' }, { value: 'new', label: '未复习' },
+                    { value: 'reviewing', label: '复习中' }, { value: 'mastered', label: '已掌握' }],
+                  onChange: (value) => setFields(Object.assign({}, fields, { status: value })),
+                })),
               h('div.mb-field', null, h('span', null, '学科'),
                 h('input', { value: fields.subject, onChange: (e) => setFields(Object.assign({}, fields, { subject: e.target.value })) }))),
             h('div.mb-row2', null,
               h('div.mb-field', null, h('span', null, '错因分类'),
-                h('select', { value: fields.mistake_type, onChange: (e) => setFields(Object.assign({}, fields, { mistake_type: e.target.value })) },
-                  h('option', { value: '' }, '不改'),
-                  ((meta && meta.mistake_types) || []).map((name) => h('option', { key: name, value: name }, name)))),
+                h(Dropdown, {
+                  value: fields.mistake_type, placeholder: '不改',
+                  options: [{ value: '', label: '不改' }].concat(
+                    ((meta && meta.mistake_types) || []).map((name) => ({ value: name, label: name }))),
+                  onChange: (value) => setFields(Object.assign({}, fields, { mistake_type: value })),
+                })),
               h('div.mb-field', null, h('span', null, '知识点'),
                 h('input', { value: fields.knowledge, onChange: (e) => setFields(Object.assign({}, fields, { knowledge: e.target.value })) }))),
             h('div.mb-row2', null,
               h('div.mb-field', null, h('span', null, '难度'),
-                h('select', { value: fields.difficulty, onChange: (e) => setFields(Object.assign({}, fields, { difficulty: e.target.value })) },
-                  h('option', { value: '' }, '不改'),
-                  [1, 2, 3, 4, 5].map((n) => h('option', { key: n, value: String(n) }, n + ' 星')))),
+                h(Dropdown, {
+                  value: fields.difficulty, placeholder: '不改',
+                  options: [{ value: '', label: '不改' }].concat(
+                    [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + ' 星' }))),
+                  onChange: (value) => setFields(Object.assign({}, fields, { difficulty: value })),
+                })),
               h('div.mb-field', null, h('span', null, '标签'),
                 h('input', { value: fields.tags, onChange: (e) => setFields(Object.assign({}, fields, { tags: e.target.value })), placeholder: '逗号分隔' }))),
             h('div.mb-field', null, h('span', null, '标签方式'),
-              h('select', { value: fields.tagsMode, onChange: (e) => setFields(Object.assign({}, fields, { tagsMode: e.target.value })) },
-                h('option', { value: 'add' }, '追加'),
-                h('option', { value: 'replace' }, '覆盖'))),
+              h(Dropdown, {
+                value: fields.tagsMode,
+                options: [{ value: 'add', label: '追加' }, { value: 'replace', label: '覆盖' }],
+                onChange: (value) => setFields(Object.assign({}, fields, { tagsMode: value })),
+              })),
             error ? h('div.mb-note.bad', null, error) : null,
             h('div.mb-formfoot', null,
               h('button.mb-btn.primary', { type: 'button', onClick: () => void apply(), disabled: busy }, busy ? '修改中…' : '应用'),
@@ -1050,9 +1195,12 @@ window.__ModuleLoader__.load({
 
       return h('div.mb-detail', null,
         h('div.mb-toolbar', { style: { padding: '0 0 10px', borderBottom: '0' } },
-          h('select.mb-input', { value: subject, onChange: (e) => setSubject(e.target.value) },
-            h('option', { value: '' }, '全部学科'),
-            (meta.subjects || []).map((name) => h('option', { key: name, value: name }, name))),
+          h(Dropdown, {
+            value: subject, placeholder: '全部学科',
+            options: [{ value: '', label: '全部学科' }].concat(
+              (meta.subjects || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => setSubject(value),
+          }),
           h('span.mb-spacer'),
           h('span.mb-stats', null, '知识点 ' + mastery.points_total + ' 个 · 已过门禁 ' + mastery.passed_total + ' 个')),
 
@@ -1115,11 +1263,16 @@ window.__ModuleLoader__.load({
 
     function PlanView(props) {
       const meta = props.meta || {};
+      const onOpen = props.onOpen;
+      const settings = meta.settings || {};
+      const savedLimit = String(settings.daily_limit || 20);
       const [days, setDays] = useState('7');
-      const [limit, setLimit] = useState('10');
+      const [limit, setLimit] = useState(savedLimit);
       const [subject, setSubject] = useState('');
       const [report, setReport] = useState(null);
       const [error, setError] = useState('');
+      const [limitNote, setLimitNote] = useState('');
+      const [limitDraft, setLimitDraft] = useState(savedLimit);
 
       useEffect(() => {
         let cancelled = false;
@@ -1130,18 +1283,62 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, [days, limit, subject]);
 
+      // meta 是异步来的：等它到了（或别处改了 settings 后刷新）再把上限同步过来
+      useEffect(() => {
+        const next = String((meta.settings || {}).daily_limit || 20);
+        setLimit(next);
+        setLimitDraft(next);
+      }, [(meta.settings || {}).daily_limit]);
+
+      // 每日上限：改一次就写进后端 settings，下次打开还是这个数（范围 1–200，与后端一致）
+      const applyLimit = async (raw) => {
+        const text = String(raw == null ? '' : raw).trim();
+        const num = Number(text);
+        if (!text || !Number.isFinite(num) || Math.round(num) !== num || num < 1 || num > 200) {
+          setLimitNote('请输入 1–200 的整数');
+          setLimitDraft(String(limit));
+          return;
+        }
+        setLimitNote('');
+        setLimitDraft(String(num));
+        setLimit(String(num));
+        try {
+          await data('/api/settings', { method: 'PUT', body: JSON.stringify({ daily_limit: num }) });
+          if (props.onSettingsSaved) props.onSettingsSaved();
+        } catch (failure) { setLimitNote(errText(failure)); }
+      };
+
       if (error) return h('div.mb-empty', null, error);
       if (!report) return h('div.mb-empty', null, '排期中…');
 
       return h('div.mb-detail', null,
-        h('div.mb-toolbar', { style: { padding: '0 0 10px', borderBottom: '0' } },
-          h('select.mb-input', { value: days, onChange: (e) => setDays(e.target.value) },
-            h('option', { value: '7' }, '未来 7 天'), h('option', { value: '14' }, '未来 14 天'), h('option', { value: '30' }, '未来 30 天')),
-          h('select.mb-input', { value: limit, onChange: (e) => setLimit(e.target.value) },
-            h('option', { value: '10' }, '每天 10 道'), h('option', { value: '20' }, '每天 20 道'), h('option', { value: '50' }, '每天 50 道')),
-          h('select.mb-input', { value: subject, onChange: (e) => setSubject(e.target.value) },
-            h('option', { value: '' }, '全部学科'),
-            (meta.subjects || []).map((name) => h('option', { key: name, value: name }, name)))),
+        h('div.mb-toolbar', { style: { padding: '0 0 10px', borderBottom: '0', alignItems: 'center' } },
+          h(Dropdown, {
+            value: days, placeholder: '未来 7 天',
+            options: [{ value: '7', label: '未来 7 天' }, { value: '14', label: '未来 14 天' },
+              { value: '30', label: '未来 30 天' }],
+            onChange: (value) => setDays(value),
+          }),
+          h('label.mb-meta', { style: { gap: '6px', marginTop: '0' } },
+            h('span', null, '每天'),
+            h('input.mb-input', {
+              type: 'number', min: '1', max: '200', step: '1', value: limitDraft,
+              style: { width: '76px', flex: '0 0 auto', minWidth: '0' },
+              title: '每日复习上限 1-200',
+              onChange: (event) => setLimitDraft(event.target.value),
+              onBlur: (event) => void applyLimit(event.target.value),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter') { event.preventDefault(); void applyLimit(event.target.value); }
+              },
+            }),
+            h('span', null, '道')),
+          h(Dropdown, {
+            value: subject, placeholder: '全部学科',
+            options: [{ value: '', label: '全部学科' }].concat(
+              (meta.subjects || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => setSubject(value),
+          }),
+          limitNote ? h('span.mb-note.bad', null, limitNote) : null),
         h('div.mb-block', null,
           h('div.mb-panel', null,
             h('div.mb-meta', { style: { gap: '14px', marginTop: '0' } },
@@ -1153,7 +1350,10 @@ window.__ModuleLoader__.load({
         !report.total ? h('div.mb-empty', null, '未来 ' + report.window_days + ' 天没有要复习的题。去录几道，或把状态改成「复习中」。') :
           (report.days || []).filter((day) => day.count).map((day) => h('div.mb-block', { key: day.date },
             h('div.mb-dayhead', null, h('b', null, day.label), h('span', null, day.date), h('span.mb-badge', null, day.count + ' 道')),
-            h('div.mb-panel', null, day.items.map((item) => h('div.mb-hrow', { key: item.id },
+            h('div.mb-panel', null, day.items.map((item) => h('button.mb-hrow.pickable', {
+              key: item.id, type: 'button', title: onOpen ? '在「错题」页打开这道题' : '',
+              onClick: () => { if (onOpen) onOpen(item.id); },
+            },
               h('span', { style: { flex: '1 1 auto' } }, clip(item.question, 70)),
               h('span.mb-badge', null, item.subject || '未分科'),
               dueText(item) ? h('span.mb-badge.overdue', null, dueText(item)) : null))))));
@@ -1296,9 +1496,12 @@ window.__ModuleLoader__.load({
           h('div.mb-seg', null,
             h('button', { className: show === 'zone' ? 'on' : '', onClick: () => setShow('zone') }, '在战区'),
             h('button', { className: show === 'cleared' ? 'on' : '', onClick: () => setShow('cleared') }, '已出区')),
-          h('select.mb-input', { value: subject, onChange: (e) => setSubject(e.target.value) },
-            h('option', { value: '' }, '全部学科'),
-            (meta.subjects || []).map((name) => h('option', { key: name, value: name }, name)))),
+          h(Dropdown, {
+            value: subject, placeholder: '全部学科',
+            options: [{ value: '', label: '全部学科' }].concat(
+              (meta.subjects || []).map((name) => ({ value: name, label: name }))),
+            onChange: (value) => setSubject(value),
+          })),
         h('div.mb-block', null,
           h('div.mb-panel', null,
             h('div.mb-meta', { style: { gap: '14px', marginTop: '0' } },
@@ -1400,6 +1603,7 @@ window.__ModuleLoader__.load({
       const [remind, setRemind] = useState(null);
       const [formBusy, setFormBusy] = useState(false);
       const [formError, setFormError] = useState('');
+      const [fromPlan, setFromPlan] = useState(false);   // 详情是否从「计划」页跳过来
 
       useEffect(() => {
         let cancelled = false;
@@ -1424,8 +1628,29 @@ window.__ModuleLoader__.load({
 
       const open = useCallback((id, mode) => {
         setCreating(false);
+        setFromPlan(false);
         setDetailId(id);
         setDetailMode(mode === 'edit' ? 'edit' : 'review');
+      }, []);
+
+      // 计划页点某道题 → 切到错题页并打开它的详情；返回时回到计划页
+      const openFromPlan = useCallback((id) => {
+        setCreating(false);
+        setFromPlan(true);
+        setDetailId(id);
+        setDetailMode('review');
+        setTab('list');
+      }, []);
+
+      const backToPlan = useCallback(() => {
+        setFromPlan(false);
+        setDetailId(0);
+        setTab('plan');
+      }, []);
+
+      // 设置改完要让 meta 里的 settings 跟上，否则下次进计划页会拿旧上限
+      const refreshMeta = useCallback(() => {
+        data('/api/meta').then((value) => setMeta(value)).catch(() => { /* 拿不到就沿用旧值 */ });
       }, []);
 
       const create = async (body) => {
@@ -1450,7 +1675,7 @@ window.__ModuleLoader__.load({
           h('span.mb-stats', null, '共 ' + total + ' 道 · 到期 ' + due + ' 道'),
           h('div.mb-tabs', null, TABS.map((pair) => h('button', {
             key: pair[0], type: 'button', className: tab === pair[0] ? 'on' : '',
-            onClick: () => { setTab(pair[0]); setCreating(false); },
+            onClick: () => { setTab(pair[0]); setCreating(false); setFromPlan(false); },
           }, pair[1]))),
           h('span.mb-spacer'),
           h('button.mb-btn.primary', { type: 'button', onClick: () => { setCreating(true); setDetailId(0); setTab('list'); } }, '＋ 新建')),
@@ -1473,10 +1698,11 @@ window.__ModuleLoader__.load({
                 key: detailId + ':' + detailMode,
                 id: detailId, mode: detailMode, meta,
                 onChanged: reload, SessionProvider, renderFactorySlot,
+                onBack: fromPlan ? backToPlan : null,
               }) :
                 h('div.mb-empty', null, '从左栏选一道错题，或点「＋ 新建」'))) :
           tab === 'study' ? h(StudyView, { meta }) :
-            tab === 'plan' ? h(PlanView, { meta }) :
+            tab === 'plan' ? h(PlanView, { meta, onOpen: openFromPlan, onSettingsSaved: refreshMeta }) :
               tab === 'an' ? h(AnalyticsView, null) :
                 tab === 'arena' ? h(ArenaView, { meta }) :
                   h(TrashView, null));
@@ -1509,6 +1735,7 @@ window.__ModuleLoader__.load({
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog,
+        Dropdown,
       },
     };
   },

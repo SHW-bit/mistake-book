@@ -242,6 +242,10 @@ label input,label select,label textarea{width:100%}
 
 /* ---- 视图页头（批 4：学习 / 计划 / 分析 / 回收站 / 再战区）---- */
 .ph-r select{height:var(--ctl-sm);font-size:13px;padding:0 8px}
+.ph-r .numfield{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.ph-r input[type=number]{height:var(--ctl-sm);width:70px;font-size:13px;padding:0 8px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.ph-r input[type=number]:focus{outline:2px solid var(--line-strong);outline-offset:1px}
 .ph-r .ghost{height:var(--ctl-sm);font-size:13px;padding:0 10px}
 .viewnote{margin:-2px 0 14px;font-size:12px;line-height:1.65;color:var(--ink-3)}
 .viewnote:empty{display:none}
@@ -363,7 +367,8 @@ label input,label select,label textarea{width:100%}
   .pagehead{align-items:flex-start;gap:10px}
   .ptitle{font-size:18px}
   .ph-r{width:100%;flex-wrap:wrap}
-  .ph-r select,.ph-r .ghost{flex:1 1 auto;min-width:0;height:38px}
+  .ph-r select,.ph-r .ghost,.ph-r input[type=number]{flex:1 1 auto;min-width:0;height:38px}
+  .ph-r .numfield{flex:1 1 100%}
   .viewnote{margin-top:-4px}
   .cfgrow{gap:10px}
   /* 批 5：移动端细化 */
@@ -584,12 +589,9 @@ label input,label select,label textarea{width:100%}
         <option value="7" selected>未来 7 天</option>
         <option value="14">未来 14 天</option>
       </select>
-      <select id="pl-limit">
-        <option value="5">每天 5 道</option>
-        <option value="10" selected>每天 10 道</option>
-        <option value="20">每天 20 道</option>
-        <option value="50">每天 50 道</option>
-      </select>
+      <label class="numfield" title="每日复习上限（1–200），改完自动保存">每日上限
+        <input type="number" id="pl-limit" min="1" max="200" step="1" value="20">
+      </label>
       <button type="button" class="ghost" id="pl-refresh">刷新</button>
     </div>
   </div>
@@ -1407,7 +1409,8 @@ label input,label select,label textarea{width:100%}
   function loadPlan() {
     var p = new URLSearchParams();
     p.set('days', $('#pl-days').value);
-    p.set('limit', $('#pl-limit').value);
+    var lv = Number($('#pl-limit').value);
+    if (lv >= 1 && lv <= 200) { p.set('limit', String(lv)); }
     var subj = $('#pl-subject').value;
     if (subj) { p.set('subject', subj); }
     $('#pl-list').innerHTML = '<div class="empty">加载中…</div>';
@@ -1421,6 +1424,8 @@ label input,label select,label textarea{width:100%}
           '</b> 道，加大上限或延长天数</span>' : '');
       $('#pl-sub').textContent = '今天 ' + d.today_count + ' 道 · 逾期 ' + d.overdue +
         ' 道 · 未来 ' + d.window_days + ' 天共 ' + d.total + ' 道';
+      // 输入框失焦时对齐后端生效值（含没填、填错时回落 settings 的情况）
+      if (document.activeElement !== $('#pl-limit')) { $('#pl-limit').value = d.daily_limit; }
       if (!d.total) {
         $('#pl-list').innerHTML = '<div class="empty">未来 ' + d.window_days +
           ' 天没有要复习的题。去录几道，或把状态改成「复习中」。</div>';
@@ -2224,7 +2229,20 @@ label input,label select,label textarea{width:100%}
   $('#pl-refresh').addEventListener('click', loadPlan);
   $('#pl-subject').addEventListener('change', loadPlan);
   $('#pl-days').addEventListener('change', loadPlan);
-  $('#pl-limit').addEventListener('change', loadPlan);
+  $('#pl-limit').addEventListener('change', function () {
+    var raw = $('#pl-limit').value.trim();
+    var n = Number(raw);
+    if (!raw || !(n >= 1 && n <= 200) || String(n) !== raw) {
+      alert('请输入 1–200 的整数');
+      loadPlan();
+      return;
+    }
+    api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ daily_limit: n })
+    }).then(loadPlan).catch(function (err) { alert('保存失败：' + err.message); });
+  });
   $('#pl-list').addEventListener('click', function (e) {
     var card = e.target.closest('.card');
     if (card) { openEdit(card.dataset.id); }

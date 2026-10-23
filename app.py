@@ -72,13 +72,17 @@ MASTERY_MIN_STABILITY = 21.0    # 每道题 FSRS 稳定性 >= 21 天
 ARENA_MIN_WRONG = 2             # 答错 >= 2 次才进再战区（错一次算正常遗忘）
 ARENA_CLEAR_STREAK = 2          # 最近一次答错后连对 >= 2 次就出区
 ARENA_MAX_ITEMS = 200           # 再战区单次返回上限
+DAILY_PLAN_LIMIT = 20           # 计划页每天默认最多排几道（v0.24 起可调）
 
 # 可调参数（v0.12）：存 settings 表，网页和 CLI 都能改，改完立刻生效不用重启
 DEFAULT_SETTINGS = {"arena_min_wrong": ARENA_MIN_WRONG,
-                    "arena_clear_streak": ARENA_CLEAR_STREAK}
-SETTING_BOUNDS = {"arena_min_wrong": (1, 20), "arena_clear_streak": (1, 20)}
+                    "arena_clear_streak": ARENA_CLEAR_STREAK,
+                    "daily_limit": DAILY_PLAN_LIMIT}
+SETTING_BOUNDS = {"arena_min_wrong": (1, 20), "arena_clear_streak": (1, 20),
+                  "daily_limit": (1, 200)}
 SETTING_LABELS = {"arena_min_wrong": "进区门槛（累计答错几次进再战区）",
-                  "arena_clear_streak": "出区门槛（连对几次自动出区）"}
+                  "arena_clear_streak": "出区门槛（连对几次自动出区）",
+                  "daily_limit": "每日复习上限（计划页一天最多排几道）"}
 MAX_VARIANTS_PER_MISTAKE = 50   # 单题变式上限，防 AI 灌爆
 
 # 知识点树（v0.9）：knowledge 用 "/" 表示层级（如 函数/二次函数），别名表合并异体写法
@@ -1605,14 +1609,16 @@ def _day_label(day: datetime, today: datetime) -> str:
     return WEEKDAYS_CN[day.weekday()]
 
 
-def plan(conn: sqlite3.Connection, days: int = 7, limit: int = 10, subject: str = "") -> dict:
+def plan(conn: sqlite3.Connection, days: int = 7, limit=None, subject: str = "") -> dict:
     """今日复习计划：把到期题按「每日上限」摊到未来 N 天，逾期优先。
 
     逾期题按 next_review_at 升序先塞今天，塞不下顺延到明天，依次类推；
     这样既不会一天堆 200 道劝退，也不会让逾期题永远沉底。
     """
     days = min(30, max(1, to_int(days, 7)))
-    limit = min(200, max(1, to_int(limit, 10)))
+    if limit is None:                       # 不传就跟随 settings 里的每日上限
+        limit = get_settings(conn).get("daily_limit", DAILY_PLAN_LIMIT)
+    limit = min(200, max(1, to_int(limit, DAILY_PLAN_LIMIT)))
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     horizon = today + timedelta(days=days)
 
@@ -2778,9 +2784,11 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path == "/api/stats" and method == "GET":
                 return self._json(200, {"ok": True, "data": stats(conn)})
             if path == "/api/plan" and method == "GET":
+                limit_raw = one(params, "limit").strip()
                 return self._json(200, {"ok": True, "data": plan(
                     conn, to_int(one(params, "days"), 7),
-                    to_int(one(params, "limit"), 10), one(params, "subject").strip())})
+                    to_int(limit_raw, None) if limit_raw else None,
+                    one(params, "subject").strip())})
             if path == "/api/analytics" and method == "GET":
                 return self._json(200, {"ok": True, "data": analytics(
                     conn, to_int(one(params, "days"), 30))})

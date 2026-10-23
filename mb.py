@@ -243,6 +243,8 @@ def cmd_settings(args, conn) -> dict:
         body["arena_min_wrong"] = args.arena_min_wrong
     if getattr(args, "arena_clear_streak", None) is not None:
         body["arena_clear_streak"] = args.arena_clear_streak
+    if getattr(args, "daily_limit", None) is not None:
+        body["daily_limit"] = args.daily_limit
     if body:
         return {"ok": True, "values": app.save_settings(conn, body)}
     return {"ok": True, "values": app.get_settings(conn), "labels": app.SETTING_LABELS,
@@ -350,7 +352,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("plan", help="今日复习计划：未来 N 天按天排的待复习题")
     p.add_argument("--days", type=int, default=7, help="窗口天数 1-30")
-    p.add_argument("--limit", type=int, default=10, help="每天最多几道 1-200")
+    p.add_argument("--limit", type=int, default=None,
+                   help="每天最多几道 1-200（不传就用 settings 的每日上限）")
     p.add_argument("--subject", default="")
     p.set_defaults(func=cmd_plan)
 
@@ -417,11 +420,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", default="", help="安全快照存放目录（默认数据库旁边的 backups/）")
     p.set_defaults(func=cmd_restore)
 
-    p = sub.add_parser("settings", help="查看/修改可调参数（再战区进区与出区门槛）")
+    p = sub.add_parser("settings", help="查看/修改可调参数（再战区门槛、每日复习上限）")
     p.add_argument("--arena-min-wrong", dest="arena_min_wrong", type=int, default=None,
                    help="累计答错几次进再战区（1-20，默认 2）")
     p.add_argument("--arena-clear-streak", dest="arena_clear_streak", type=int, default=None,
                    help="上次答错后连对几次自动出区（1-20，默认 2）")
+    p.add_argument("--daily-limit", dest="daily_limit", type=int, default=None,
+                   help="计划页每天最多排几道（1-200，默认 20）")
     p.set_defaults(func=cmd_settings)
 
     for _p in sub.choices.values():

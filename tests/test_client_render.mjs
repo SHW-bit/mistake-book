@@ -99,6 +99,28 @@ function classesOf(node, out = []) {
   return out;
 }
 
+/** 在**未展开**的 vnode 树里找下拉，收集全部选项文案（关闭态不会渲染选项）。 */
+function dropdownLabels(node, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { node.forEach((kid) => dropdownLabels(kid, out)); return out; }
+  const props = node.props || {};
+  if (Array.isArray(props.options) && props.options.length
+    && props.options.every((opt) => opt && 'value' in opt && 'label' in opt)) {
+    props.options.forEach((opt) => out.push(String(opt.label)));
+  }
+  (node.kids || []).forEach((kid) => dropdownLabels(kid, out));
+  return out;
+}
+
+/** 按标签收集已渲染的节点（用于断言控件类型，比如「上限是 number 输入框」）。 */
+function nodesOf(node, tag, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { node.forEach((kid) => nodesOf(kid, tag, out)); return out; }
+  if (node.tag === tag) out.push(node);
+  if (node.children) node.children.forEach((kid) => nodesOf(kid, tag, out));
+  return out;
+}
+
 const META = {
   subjects: ['高数'], knowledge: ['极限'], mistake_types: ['概念不清'], sources: ['作业'],
 };
@@ -107,6 +129,37 @@ const ITEM = { id: 6, question: '求 lim(x→0) sin x / x', subject: '高数', k
 const DETAIL = { id: 6, question: '求 lim(x→0) sin x / x', answer: '1', analysis: '等价无穷小',
   my_answer: '0', mistake_type: '概念不清', knowledge: '极限', review_count: 2,
   subject: '高数', difficulty: 3, tags: '极限,洛必达' };
+
+// Dropdown 的 hooks 顺序：open, active
+test('自定义下拉：关闭态只显示当前项，展开态列出全部并标出选中项', () => {
+  const options = [{ value: '', label: '全部学科' }, { value: '高数', label: '高数' },
+    { value: '线代', label: '线代', disabled: true }];
+  const closed = render(loadPlugin([false, -1]).plugin.__test__.Dropdown({
+    value: '高数', options, onChange: () => {},
+  }));
+  const closedClasses = classesOf(closed).join(' ');
+  const closedText = textOf(closed).join('|');
+  assert.match(closedClasses, /mb-dd/);
+  assert.ok(!/mb-dd open/.test(closedClasses), '关闭态不该带 open');
+  assert.match(closedText, /高数/);
+  assert.ok(!closedText.includes('全部学科'), '关闭态不该列出其它选项');
+  assert.equal(closed.children[0].props['aria-expanded'], 'false');
+  assert.equal(closed.children[0].props['aria-haspopup'], 'listbox');
+
+  const opened = render(loadPlugin([true, 1]).plugin.__test__.Dropdown({
+    value: '高数', options, onChange: () => {},
+  }));
+  const openText = textOf(opened).join('|');
+  assert.match(classesOf(opened).join(' '), /mb-dd open/);
+  assert.match(openText, /全部学科/);
+  assert.match(openText, /线代/);
+  assert.ok(openText.includes('✓'), '选中项要有勾');
+  assert.equal(opened.children[0].props['aria-expanded'], 'true');
+  const optionNodes = nodesOf(opened, 'button').filter((node) => node.props.role === 'option');
+  assert.equal(optionNodes.length, 3);
+  assert.equal(optionNodes[2].props.disabled, true, '禁用项要传下去');
+  assert.equal(optionNodes[1].props['aria-selected'], 'true', '选中项要 aria-selected');
+});
 
 test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   const { plugin } = loadPlugin([]);
@@ -172,14 +225,16 @@ test('详情：答案折叠 → 展开后四档评分、断点下拉、变式、
   assert.ok(!text.includes('等价无穷小'), '折叠时不该出现解析');
 
   const shown = [DETAIL, '', true, false, false, null, '', null, null];
-  dom = render(loadPlugin(shown).plugin.__test__.DetailPane({ id: 6, mode: 'review', meta: META }));
+  const raw = loadPlugin(shown).plugin.__test__.DetailPane({ id: 6, mode: 'review', meta: META });
+  dom = render(raw);
   text = textOf(dom).join('|');
   assert.match(text, /等价无穷小/);
   for (const word of ['忘了', '模糊', '记得', '简单']) assert.ok(text.includes(word), '缺评分档：' + word);
   assert.match(text, /错在哪一步/);
   assert.match(text, /不记录/);
+  const stepOptions = dropdownLabels(raw);
   for (const step of ['审题', '建模', '计算', '检验', '表达', '记忆']) {
-    assert.ok(text.includes(step), '缺断点选项：' + step);
+    assert.ok(stepOptions.includes(step), '缺断点选项：' + step);
   }
   assert.match(text, /查看 · 复习 2 次/);
   assert.match(text, /变式题/);
@@ -274,7 +329,7 @@ test('分析视图：趋势、保持度分桶、薄弱知识点、错因/学科/
   assert.match(classes, /mb-fill/);
 });
 
-// PlanView 的 hooks 顺序：days, limit, subject, report, error
+// PlanView 的 hooks 顺序：days, limit, subject, report, error, limitNote, limitDraft
 test('计划页：今日/逾期/窗口内计数与按天分组', () => {
   const report = {
     window_days: 7, daily_limit: 10, today_count: 2, overdue: 1, total: 3, overflow: 0,
@@ -288,6 +343,33 @@ test('计划页：今日/逾期/窗口内计数与按天分组', () => {
   assert.match(text, /今天/);
   assert.match(text, /明天/);
   assert.match(text, /2026-10-24/);
+  assert.match(text, /每天/);
+});
+
+test('计划页：每日上限是 1–200 的数字输入框，默认值取 settings', () => {
+  const report = { window_days: 7, daily_limit: 20, today_count: 0, overdue: 0, total: 0, overflow: 0, days: [] };
+  const meta = Object.assign({}, META, { settings: { daily_limit: 35 } });
+  const dom = render(loadPlugin(['7', '35', '', report, '']).plugin.__test__.PlanView({ meta }));
+  const number = nodesOf(dom, 'input').find((node) => node.props.type === 'number');
+  assert.ok(number, '缺每日上限输入框');
+  assert.equal(number.props.min, '1');
+  assert.equal(number.props.max, '200');
+  assert.equal(number.props.value, '35', '输入框初值要取 settings.daily_limit');
+});
+
+test('计划页：每道题是按钮，点了把 id 交给 onOpen（跳到错题页）', () => {
+  const report = {
+    window_days: 7, daily_limit: 10, today_count: 1, overdue: 0, total: 1, overflow: 0,
+    days: [{ label: '今天', date: '2026-10-23', count: 1, items: [ITEM] }],
+  };
+  const opened = [];
+  const dom = render(loadPlugin(['7', '10', '', report, '']).plugin.__test__.PlanView({
+    meta: META, onOpen: (id) => opened.push(id),
+  }));
+  const rows = nodesOf(dom, 'button').filter((node) => /pickable/.test(node.props.className || ''));
+  assert.equal(rows.length, 1, '计划行要渲染成可点按钮');
+  rows[0].props.onClick();
+  assert.deepEqual(opened, [6]);
 });
 
 // ArenaView 的 hooks 顺序：show, subject, report, error, version
@@ -360,14 +442,15 @@ test('学习页：知识点画像、树、别名与变式缺口', () => {
 // BulkDialog 的 hooks 顺序：fields, busy, error
 test('批量修改：字段与标签方式都在', () => {
   const fields = { status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', tags: '', tagsMode: 'add' };
-  const dom = render(loadPlugin([fields, false, '']).plugin.__test__.BulkDialog({
+  const raw = loadPlugin([fields, false, '']).plugin.__test__.BulkDialog({
     ids: [1, 2], meta: META, onClose: () => {}, onDone: () => {},
-  }));
+  });
+  const dom = render(raw);
   const text = textOf(dom).join('|');
   assert.match(text, /批量修改 · 2 道/);
   assert.match(text, /标签方式/);
   assert.match(text, /追加/);
-  assert.match(text, /覆盖/);
+  assert.ok(dropdownLabels(raw).includes('覆盖'), '缺标签方式选项：覆盖');
 });
 
 // ImportDialog 的 hooks 顺序：text, result, busy
