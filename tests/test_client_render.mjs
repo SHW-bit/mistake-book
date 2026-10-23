@@ -231,7 +231,8 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   const dom = render(plugin.__test__.MistakeBookApp({}));
   const text = textOf(dom).join('|');
   assert.match(text, /错题本/);
-  assert.match(text, /共 0 道 · 到期 0 道/);
+  // 计数被 <b> 包了（视觉上强调数字），textOf 用 '|' 连接子节点
+  assert.match(text, /共 \|0\| 道 · 到期 \|0\| 道/);
   assert.match(text, /＋ 新建/);
   for (const tab of ['错题', '学习', '计划', '分析', '再战', '回收站']) {
     assert.ok(text.includes(tab), '缺页签：' + tab);
