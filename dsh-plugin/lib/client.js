@@ -190,8 +190,9 @@ window.__ModuleLoader__.load({
       '.mb-fbthumb img{width:100%;height:100%;object-fit:cover;display:block}',
       '.mb-fbthumb button{position:absolute;top:1px;right:1px;width:16px;height:16px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:16px;cursor:pointer}',
       '.mb-fb textarea{font-size:13.5px;line-height:1.62;min-height:88px;resize:vertical}',
-      '.mb-dlg-wide{max-width:860px;width:calc(100vw - 32px)}',
-      '.mb-dlg-wide .mb-form{padding:0;max-width:none;overflow:visible}',
+      '.mb-page{width:100%;max-width:980px;box-sizing:border-box}',
+      '.mb-page .mb-form{overflow:visible;padding:0;max-width:none}',
+      '.mb-pagetitle{font-size:14px;font-weight:600;color:var(--mb-text);margin-left:2px}',
       '@media (max-width:520px){.mb-fbtip{display:none}}',
       '.mb-drop{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:7px;padding:10px 8px;border-radius:9px;border:1.5px dashed var(--mb-line-strong);background:var(--mb-surface);color:var(--mb-faint);font-size:11px;text-align:center;cursor:pointer;transition:border-color .12s,background .12s,color .12s}',
       '.mb-drop:hover,.mb-drop.over,.mb-drop:focus-visible{border-color:var(--mb-accent);background:color-mix(in srgb,var(--mb-accent) 7%,var(--mb-surface));color:var(--mb-accent);outline:0}',
@@ -2189,13 +2190,14 @@ window.__ModuleLoader__.load({
         tab === 'list' ? h('div.mb-split', null,
           h(ListTab, { meta, onOpen: open, pickedId: detailId, onStats: setStats, reloadKey, initialScope: 'all' }),
           h('div.mb-right', null,
-            creating ? h('div.mb-mask', { onClick: () => { if (!formBusy) setCreating(false); } },
-              h('div.mb-dlg.mb-dlg-wide', { onClick: (e) => e.stopPropagation() },
-                h('h3', null, '新建错题'),
-                h(ItemForm, {
-                  key: 'new', meta, initial: null, onSave: create,
-                  onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
-                }))) :
+            creating ? h('div.mb-detail.mb-page', null,
+              h('div.mb-toolbar', { style: { padding: '0 0 10px', borderBottom: '0' } },
+                h('button.mb-btn.mini', { type: 'button', onClick: () => { if (!formBusy) setCreating(false); } }, '← 返回错题'),
+                h('span.mb-pagetitle', null, '新建错题')),
+              h(ItemForm, {
+                key: 'new', meta, initial: null, onSave: create,
+                onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
+              })) :
               detailId ? h(DetailPane, {
                 key: detailId + ':' + detailMode,
                 id: detailId, mode: detailMode, meta,

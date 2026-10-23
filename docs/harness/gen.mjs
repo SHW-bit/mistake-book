@@ -142,8 +142,16 @@ const formPage = (w, css, isDark) => '<!doctype html>\n<html lang="zh-CN"><head>
   + '#stage{height:100%;width:' + w + 'px;overflow:auto;background:' + (isDark ? '#232529' : '#fff') + ';box-sizing:border-box}\n' + css.join('\n') + '\n</style></head>\n<body><div id="stage"><div class="mb">\n'
   + formHtml + '\n</div></div></body></html>';
 
+const pageHtml = (w, css, isDark) => '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n<title>page ' + w + '</title>\n<style>\n'
+  + 'html,body{margin:0;height:100%;background:' + (isDark ? '#1b1d21' : '#f4f4f2') + ';color:' + (isDark ? '#ecedf0' : '#1c1c19') + ';font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}\n'
+  + '#stage{height:100%;width:' + w + 'px;overflow:auto;background:' + (isDark ? '#232529' : '#fff') + ';box-sizing:border-box}\n' + css.join('\n') + '\n</style></head>\n<body><div id="stage"><div class="mb">'
+  + '<div class="mb-detail mb-page"><div class="mb-toolbar" style="padding:0 0 10px;border-bottom:0"><button class="mb-btn mini" type="button">← 返回错题</button><span class="mb-pagetitle">新建错题</span></div>'
+  + formHtml + '</div></div></div></body></html>';
+
 for (const w of [420, 900, 1280]) {
   fs.writeFileSync(path.join(OUT, 'form-' + w + '.html'), formPage(w, light, false), 'utf8');
   fs.writeFileSync(path.join(OUT, 'form-' + w + '-dark.html'), formPage(w, dark, true), 'utf8');
+  fs.writeFileSync(path.join(OUT, 'page-' + w + '.html'), pageHtml(w, light, false), 'utf8');
+  fs.writeFileSync(path.join(OUT, 'page-' + w + '-dark.html'), pageHtml(w, dark, true), 'utf8');
 }
 console.log('表单页生成完毕');

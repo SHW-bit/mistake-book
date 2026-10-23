@@ -392,8 +392,8 @@ test('录入表单：四块各有一个紧凑图片按钮，没有独立拖拽�
   assert.equal(textOf(dom).filter((x) => x === '＋ 图片').length, 4);
   assert.ok(!classes.some((c) => /mb-drop|mb-imgs|mb-thumb/.test(c)), '旧的独立拖拽区与缩略图容器应已移除');
   const source = fs.readFileSync(CLIENT, 'utf8');
-  assert.ok(source.includes("h('div.mb-mask'") && source.includes("'新建错题'")
-    && source.includes('mb-dlg-wide'), '新建走独立浮层（mb-mask + mb-dlg-wide）');
+  assert.ok(source.includes("h('div.mb-detail.mb-page'") && source.includes("'新建错题'")
+    && source.includes('← 返回错题'), '新建是整页视图（mb-detail.mb-page），与学习/计划同级');
 });
 
 // AnalyticsView 的 hooks 顺序：days, report, error
