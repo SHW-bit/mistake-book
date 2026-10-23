@@ -270,6 +270,35 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
 
+    def test_create_allows_image_only(self):
+        # v0.52：截图录题是主要用法，题干可以空着，只要带了图
+        status, body = self.call("POST", "/api/mistakes", {"subject": "高数", "images": [{"data": PNG_A}]})
+        self.assertEqual(status, 201, body)
+        item = body["data"]
+        self.assertEqual(item["question"], "")
+        self.assertTrue(item["has_image"])
+        self.assertEqual(len(item["images"]), 1)
+
+    def test_image_only_items_are_not_deduped(self):
+        # 空题干不参与「3 秒内同题干」去重，否则连着截两张图只会留下第一张
+        status1, body1 = self.call("POST", "/api/mistakes", {"images": [{"data": PNG_A}]})
+        status2, body2 = self.call("POST", "/api/mistakes", {"images": [{"data": PNG_B}]})
+        self.assertEqual((status1, status2), (201, 201))
+        self.assertNotEqual(body1["data"]["id"], body2["data"]["id"])
+
+    def test_update_keeps_image_only_item(self):
+        status, body = self.call("POST", "/api/mistakes", {"images": [{"data": PNG_C}]})
+        self.assertEqual(status, 201, body)
+        mid = body["data"]["id"]
+        # 只改知识点：题干空、也没带图，但库里已有图，照样能存
+        status, body = self.call("PUT", "/api/mistakes/%d" % mid, {"knowledge": "极限"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["data"]["knowledge"], "极限")
+        # 题干和图片都清空 → 拒
+        status, body = self.call("PUT", "/api/mistakes/%d" % mid, {"question": "", "images": []})
+        self.assertEqual(status, 400, body)
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
+
     def test_create_defaults(self):
         item = self.create()
         self.assertGreater(item["id"], 0)
@@ -515,7 +544,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["data"]["total"], 2)
 
     def test_stats_and_meta(self):
-        self.create(subject="数学", question="统计题一", tags="函数", mistake_type="概念不清")
+        self.create(subject="数学", question="统计题一", tags="函数", mistake_type="概念不清",
+                    source="期中")
         self.create(subject="数学", question="统计题二", tags="函数", mistake_type="计算失误")
         self.create(subject="英语", question="统计题三", tags="语法")
 
@@ -533,7 +563,62 @@ class ApiTest(unittest.TestCase):
         self.assertIn("函数", body["data"]["tags"])
         self.assertIn("knowledge", body["data"])
         self.assertIn("概念不清", body["data"]["mistake_types"])
-        self.assertIn("期中", body["data"]["sources"])
+        # v0.43：sources 只回库里真用过的值，不再把 8 个内置值并进来
+        self.assertEqual(body["data"]["sources"], ["期中"])
+        self.assertIn("source_facets", body["data"])
+
+    def test_meta_sources_are_live(self):
+        """v0.43：来源候选只来自库里真用过的值，0 题的内置值不再占位。"""
+        self.create(question="活词表一", source="周测")
+        self.create(question="活词表二", source="周测")
+        self.create(question="活词表三", source="自编卷")
+        _, body = self.call("GET", "/api/meta")
+        # 按题量降序：周测 2 题在前，自编卷 1 题在后
+        self.assertEqual(body["data"]["sources"], ["周测", "自编卷"])
+        self.assertNotIn("模拟考", body["data"]["sources"])
+        self.assertNotIn("其他", body["data"]["sources"])
+
+    def test_meta_source_facets_counted(self):
+        self.create(question="分面一", source="周测")
+        self.create(question="分面二", source="周测")
+        self.create(question="分面三", source="自编卷")
+        _, body = self.call("GET", "/api/meta")
+        facets = {f["name"]: f for f in body["data"]["source_facets"]}
+        self.assertEqual(facets["周测"]["count"], 2)
+        self.assertTrue(facets["周测"]["system"])
+        self.assertEqual(facets["自编卷"]["count"], 1)
+        self.assertFalse(facets["自编卷"]["system"])
+        # 0 题的内置值仍留在 facets 里（管理面板「未使用」分组要用），但 count=0
+        self.assertEqual(facets["模拟考"]["count"], 0)
+        self.assertTrue(facets["模拟考"]["system"])
+        self.assertNotIn("模拟考", body["data"]["sources"])
+
+    def test_meta_merge_source(self):
+        a = self.create(question="来源合并一", source="周测")
+        b = self.create(question="来源合并二", source="周测")
+        c = self.create(question="来源合并三", source="小测")
+        status, body = self.call("POST", "/api/meta/merge",
+                                 {"kind": "source", "sources": ["小测"], "target": "周测"})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["moved"], 1)
+        for mid in (a["id"], b["id"], c["id"]):
+            _, got = self.call("GET", "/api/mistakes/%d" % mid)
+            self.assertEqual(got["data"]["source"], "周测")
+        _, meta = self.call("GET", "/api/meta")
+        self.assertEqual(meta["data"]["sources"], ["周测"])
+
+    def test_meta_clear_source(self):
+        """target 为空 = 删除这个来源值：题目不动，只是来源清空。"""
+        item = self.create(question="来源清空", source="自编卷")
+        status, body = self.call("POST", "/api/meta/merge",
+                                 {"kind": "source", "sources": ["自编卷"], "target": ""})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["data"]["cleared"])
+        self.assertEqual(body["data"]["moved"], 1)
+        _, got = self.call("GET", "/api/mistakes/%d" % item["id"])
+        self.assertEqual(got["data"]["source"], "")
+        _, meta = self.call("GET", "/api/meta")
+        self.assertEqual(meta["data"]["sources"], [])
 
     def test_stats_review_accuracy(self):
         item = self.create()
