@@ -1,5 +1,7 @@
 # 错题本 · Mistake Book
 
+[![CI](https://github.com/SHW-bit/mistake-book/actions/workflows/ci.yml/badge.svg)](https://github.com/SHW-bit/mistake-book/actions/workflows/ci.yml)
+
 零第三方依赖的本地错题本：Python 标准库 + SQLite + 原生 HTML/JS。
 （装了 Pillow 会自动用它生成缩略图，没装照样跑 —— 见 5.29.3。）
 一条命令启动，浏览器打开即用。

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (py ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python 端到端测试
+        run: python -m unittest discover -s tests -v
+
+      - name: Node 单测（插件 / 工具 / 面板）
+        run: node --test tests/test_plugin.mjs tests/test_tools.mjs tests/test_client.mjs tests/test_client_render.mjs
+
+      - name: 语法自检
+        run: |
+          python -m py_compile app.py mb.py fsrs.py notify.py bench.py
+          node --check static/lib.js
+          node --check dsh-plugin/lib/tools.js
+          node --check dsh-plugin/lib/client.js
