@@ -8,8 +8,8 @@
 #   node install.mjs            # 真实拷贝进 profile（不是 junction）
 #   node install.mjs --uninstall
 # install.mjs 会把本包登记进 profile 的 dependencies 与 dsh.profile.bundles，
-# 并把下面的 <REPO>/dsh-plugin 换成安装后的真实绝对路径（customSkillDirs 必须是
-# 绝对路径：DSH 会话的工作目录是任意的，相对路径在别处解析不出来）。
+# 并把预设里 customSkillDirs 的仓库占位路径换成安装后的真实绝对路径
+# （customSkillDirs 必须是绝对路径：DSH 会话的工作目录是任意的，相对路径在别处解析不出来）。
 # 不要用 pnpm 装：pnpm 对本地路径建 junction，DSH 桌面端插件管理读不到，界面里看不见。
 
 # 根行（面板）：宿主只从**根 loader 行**发现 dsh.client，且行名必须是**裸包名**——
