@@ -157,6 +157,7 @@ window.__ModuleLoader__.load({
       '.mb-dlg{background:var(--mb-surface,#fff);color:inherit;border-radius:12px;max-width:620px;width:100%;max-height:86vh;overflow:auto;padding:14px 16px;border:1px solid var(--mb-line,rgba(127,127,127,.3))}',
       '.mb-dlg h3{margin:0 0 10px;font-size:14px}',
       '.mb-bulkbar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.22));background:rgba(59,110,240,.08);font-size:12px}',
+      '.mb-notice{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;padding:8px 10px;border-radius:8px;font-size:12px;line-height:18px;background:rgba(168,113,42,.12);border:1px solid rgba(168,113,42,.35);color:inherit}',
       '.mb-pager{display:flex;align-items:center;gap:8px;justify-content:center;padding:8px;font-size:12px;color:var(--mb-dim,rgba(127,127,127,.95))}',
       '@media(max-width:760px){.mb-row2{grid-template-columns:1fr}.mb-split{grid-template-columns:minmax(0,1fr)}.mb-left{border-right:0;max-height:44%;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.22))}.mb-filters{grid-template-columns:1fr}}',
     ].join('');
@@ -898,6 +899,7 @@ window.__ModuleLoader__.load({
       const [moreOpen, setMoreOpen] = useState(false);
       const [showFilters, setShowFilters] = useState(false);
       const [qLive, setQLive] = useState('');
+      const [notice, setNotice] = useState(null);
       const moreBtnRef = useRef(null);
       const morePop = usePopupAnchor(moreOpen, moreBtnRef, null, 150);   // 「更多」菜单同样 fixed 定位
 
@@ -982,6 +984,25 @@ window.__ModuleLoader__.load({
         patch(patchObj);
       };
 
+      // 斩题后默认列表里就看不到它了，必须给个去处，否则用户以为题没了
+      const suspendItem = async (item) => {
+        const action = item.suspended ? 'resume' : 'suspend';
+        try {
+          await data('/api/mistakes/' + item.id + '/' + action, { method: 'POST' });
+          setNotice(action === 'suspend'
+            ? { id: item.id, text: '已斩题 #' + item.id + '：它已移出复习池，默认列表里不再显示。', canView: true, canUndo: true }
+            : { id: item.id, text: '已恢复 #' + item.id + ' 的复习。', canView: false, canUndo: false });
+          void load();
+        } catch (failure) { setError(errText(failure)); }
+      };
+      const undo = async (id) => {
+        try {
+          await data('/api/mistakes/' + id + '/resume', { method: 'POST' });
+          setNotice(null);
+          void load();
+        } catch (failure) { setError(errText(failure)); }
+      };
+
       const row = (item) => h('div.mb-item' + (item.id === pickedId ? '.on' : ''), { key: item.id },
         h('div.mb-row', null,
           h('input.mb-pick', {
@@ -1000,13 +1021,7 @@ window.__ModuleLoader__.load({
             h('div.mb-meta', null,
               h('button.mb-btn.mini', { type: 'button', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'review'); } }, '复习'),
               h('button.mb-btn.mini', { type: 'button', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'edit'); } }, '编辑'),
-              h('button.mb-btn.mini', { type: 'button', onClick: async (e) => {
-                e.stopPropagation();
-                try {
-                  await data('/api/mistakes/' + item.id + '/' + (item.suspended ? 'resume' : 'suspend'), { method: 'POST' });
-                  void load();
-                } catch (failure) { setError(errText(failure)); }
-              } }, item.suspended ? '恢复' : '斩题')))));
+              h('button.mb-btn.mini', { type: 'button', onClick: (e) => { e.stopPropagation(); void suspendItem(item); } }, item.suspended ? '恢复' : '斩题')))));
 
       return h('div.mb-left', null,
         h('div.mb-toolbar', null,
@@ -1094,6 +1109,12 @@ window.__ModuleLoader__.load({
             } catch (failure) { setError(errText(failure)); }
           } }, '批量删除')) : null,
 
+        notice ? h('div.mb-notice', null,
+          h('span', { style: { flex: '1 1 auto' } }, notice.text),
+          notice.canView ? h('button.mb-btn.mini', { type: 'button', onClick: () => { setNotice(null); patch({ suspended: true }); } }, '查看已斩题') : null,
+          notice.canUndo ? h('button.mb-btn.mini', { type: 'button', onClick: () => void undo(notice.id) }, '撤销') : null,
+          h('button.mb-btn.mini', { type: 'button', onClick: () => setNotice(null) }, '知道了')) : null,
+
         h('div.mb-list', null,
           loading && !items.length ? h('div.mb-empty', null, '加载中…') :
             error ? h('div.mb-empty', null, error) :
@@ -1125,7 +1146,7 @@ window.__ModuleLoader__.load({
 
     function BulkDialog(props) {
       const { ids, meta, onClose, onDone } = props;
-      const [fields, setFields] = useState({ status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', tags: '', tagsMode: 'add' });
+      const [fields, setFields] = useState({ status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', source: '', paper_id: '', tags: '', tagsMode: 'add' });
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
 
@@ -1135,6 +1156,8 @@ window.__ModuleLoader__.load({
         if (fields.subject.trim()) body.subject = fields.subject.trim();
         if (fields.mistake_type) body.mistake_type = fields.mistake_type;
         if (fields.knowledge.trim()) body.knowledge = fields.knowledge.trim();
+        if (fields.source.trim()) body.source = fields.source.trim();
+        if (fields.paper_id) body.paper_id = Number(fields.paper_id);
         if (fields.difficulty) body.difficulty = Number(fields.difficulty);
         if (fields.tags.trim()) { body.tags = fields.tags.trim(); body.tags_mode = fields.tagsMode; }
         if (!Object.keys(body).length) { setError('至少选一项要改的内容'); return; }
@@ -1179,10 +1202,20 @@ window.__ModuleLoader__.load({
                 })),
               h('div.mb-field', null, h('span', null, '标签'),
                 h('input', { value: fields.tags, onChange: (e) => setFields(Object.assign({}, fields, { tags: e.target.value })), placeholder: '逗号分隔' }))),
+            h('div.mb-row2', null,
+              h('div.mb-field', null, h('span', null, '来源'),
+                h('input', { value: fields.source, onChange: (e) => setFields(Object.assign({}, fields, { source: e.target.value })), placeholder: '如 期中、练习册' })),
+              h('div.mb-field', null, h('span', null, '试卷'),
+                h(Dropdown, {
+                  value: fields.paper_id, placeholder: '不改',
+                  options: [{ value: '', label: '不改' }].concat(
+                    ((meta && meta.papers) || []).map((paper) => ({ value: String(paper.id), label: paper.name || ('#' + paper.id) }))),
+                  onChange: (value) => setFields(Object.assign({}, fields, { paper_id: value })),
+                }))),
             h('div.mb-field', null, h('span', null, '标签方式'),
               h(Dropdown, {
                 value: fields.tagsMode,
-                options: [{ value: 'add', label: '追加' }, { value: 'replace', label: '覆盖' }],
+                options: [{ value: 'add', label: '追加到原有' }, { value: 'set', label: '替换原有' }, { value: 'remove', label: '从原有移除' }],
                 onChange: (value) => setFields(Object.assign({}, fields, { tagsMode: value })),
               })),
             error ? h('div.mb-note.bad', null, error) : null,
@@ -1194,39 +1227,56 @@ window.__ModuleLoader__.load({
     function ImportDialog(props) {
       const { onClose, onDone } = props;
       const [text, setText] = useState('');
-      const [result, setResult] = useState('');
+      const [report, setReport] = useState(null);
       const [busy, setBusy] = useState(false);
+
+      // 导入成功就返回 onDone（关窗 + 刷新列表）；没导入过直接关
+      const close = () => (report && report.created ? onDone() : onClose());
 
       const submit = async () => {
         if (!text.trim()) return;
         setBusy(true);
         try {
           const r = await data('/api/mistakes/batch', { method: 'POST', body: JSON.stringify({ text }) });
-          let message = '成功 ' + (r.created_count || 0) + ' 条';
-          if (r.duplicate_count) message += '，重复 ' + r.duplicate_count + ' 条';
-          if (r.error_count) message += '，失败 ' + r.error_count + ' 条';
-          const detail = (r.errors || []).map((x) => '第 ' + (x.index + 1) + ' 条：' + x.error).join('；');
-          setResult(message + (detail ? '（' + detail + '）' : ''));
-          if (r.created_count) onDone();
+          const created = r.created_count || 0;
+          const dup = r.duplicate_count || 0;
+          const bad = r.error_count || 0;
+          const lines = [];
+          if (!created && !dup && !bad) {
+            lines.push('没解析出任何错题：每段请以「题目:」开头，段与段之间用一行 --- 或空行分开。');
+          }
+          (r.errors || []).forEach((x) => lines.push('第 ' + (x.index + 1) + ' 段没导入：' + x.error));
+          (r.duplicates || []).forEach((x) => lines.push('第 ' + (x.index + 1) + ' 段与已有错题重复，已跳过（#' + x.id + '）'));
+          setReport({ created, dup, bad, lines });
         } catch (failure) {
-          setResult('导入失败：' + errText(failure));
+          setReport({ created: 0, dup: 0, bad: 0, lines: ['导入失败：' + errText(failure)] });
         } finally { setBusy(false); }
       };
 
-      return h('div.mb-mask', { onClick: onClose },
+      const again = () => { setText(''); setReport(null); };
+
+      return h('div.mb-mask', { onClick: close },
         h('div.mb-dlg', { onClick: (e) => e.stopPropagation() },
           h('h3', null, '批量导入'),
           h('div.mb-empty', { style: { textAlign: 'left', padding: '0 0 8px' } },
-            '一条错题一段，用空行或 --- 分隔；字段写成「题目: …」「答案: …」「知识点: …」。'),
+            '一条错题一段：段与段之间用一行 --- 或空行分开（下一段以「题目:」开头即可）。',
+            '字段写成「题目: …」「答案: …」「知识点: …」，不带键名的行接在上一条后面。'),
           h('textarea', {
             value: text, rows: 12, style: { width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '12px', borderRadius: '8px', border: '1px solid var(--mb-line,rgba(127,127,127,.3))', background: 'transparent', color: 'inherit', padding: '8px' },
-            placeholder: '题目: 求 lim x→0 sinx/x\n我的答案: 0\n答案: 1\n知识点: 极限\n错因: 概念不清',
+            placeholder: '题目: 求 lim x→0 sinx/x\n我的答案: 0\n答案: 1\n知识点: 极限\n错因: 概念不清\n---\n题目: 第二题\n答案: 2',
             onChange: (e) => setText(e.target.value),
           }),
-          result ? h('div.mb-note', null, result) : null,
+          report ? h('div', { style: { marginTop: '8px' } },
+            h('div.mb-note', null, '成功 ' + report.created + ' 条'
+              + (report.dup ? '，重复跳过 ' + report.dup + ' 条' : '')
+              + (report.bad ? '，失败 ' + report.bad + ' 条' : '')),
+            report.lines.length ? h('div.mb-note.bad', { style: { whiteSpace: 'pre-wrap', marginTop: '4px' } }, report.lines.join('\n')) : null) : null,
           h('div.mb-formfoot', { style: { marginTop: '8px' } },
-            h('button.mb-btn.primary', { type: 'button', onClick: () => void submit(), disabled: busy || !text.trim() }, busy ? '导入中…' : '导入'),
-            h('button.mb-btn', { type: 'button', onClick: onClose, disabled: busy }, '关闭'))));
+            report && (report.created || report.dup || report.bad)
+              ? h('button.mb-btn', { type: 'button', onClick: again }, '继续导入')
+              : h('button.mb-btn.primary', { type: 'button', onClick: () => void submit(), disabled: busy || !text.trim() }, busy ? '导入中…' : '导入'),
+            h('button.mb-btn' + (report && report.created ? '.primary' : ''), { type: 'button', onClick: close, disabled: busy },
+              report && report.created ? '完成' : '关闭'))));
     }
 
     /* ── 学习页：知识点画像 + 树 + 别名 + 变式缺口 ───────────────────── */

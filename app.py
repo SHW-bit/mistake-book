@@ -700,14 +700,41 @@ def parse_batch_text(text: str) -> list:
         raise ValidationError("批量文本必须是字符串")
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
-    blocks, cur = [], []
-    for line in lines:
+    def key_of(line: str):
+        """一行若是可识别的「键: 值」，返回规范键名，否则 None。"""
+        match = re.match(r"^([^:：]{1,12})[:：]\s*(.*)$", line.strip())
+        return BATCH_KEYS.get(match.group(1).strip()) if match else None
+
+    blocks, cur, cur_keys = [], [], set()
+
+    def flush():
+        nonlocal cur, cur_keys
+        blocks.append(cur)
+        cur, cur_keys = [], set()
+
+    for index, line in enumerate(lines):
         if line.strip() == "---":
-            blocks.append(cur)
-            cur = []
-        else:
+            flush()
+            continue
+        if not line.strip():
+            # 空行也当分条符——但只在下一非空行是「本块已出现过的键」时，
+            # 否则它是字段内部的空行（长题干分段），不能拆。
+            nxt = ""
+            for later in lines[index + 1:]:
+                if later.strip():
+                    nxt = later
+                    break
+            key = key_of(nxt) if nxt else None
+            if key and key in cur_keys:
+                flush()
+                continue
             cur.append(line)
-    blocks.append(cur)
+            continue
+        key = key_of(line)
+        if key:
+            cur_keys.add(key)
+        cur.append(line)
+    flush()
 
     items = []
     for block in blocks:
@@ -726,8 +753,11 @@ def parse_batch_text(text: str) -> list:
                 fields[last] = (fields[last] + "\n" + stripped).strip()
             else:
                 loose.append(stripped)
-        if loose and not fields.get("question"):
-            fields["question"] = "\n".join(loose)
+        if loose:
+            if fields.get("question"):
+                fields["question"] = (fields["question"] + "\n" + "\n".join(loose)).strip()
+            else:
+                fields["question"] = "\n".join(loose)
         if fields:
             items.append(fields)
     return items

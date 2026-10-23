@@ -134,6 +134,11 @@ button.ghost:hover{background:var(--hover);color:var(--ink)}
 #list .card.picked::before{background:var(--brand)}
 #list .card.suspended .body{opacity:.72}
 #list .card.suspended:hover .body{opacity:1}
+/* 斩题/恢复后的提示条：告诉用户去哪找，并给一键撤销 */
+.flash{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:9px 12px;
+  border-radius:var(--radius-sm);font-size:13px;line-height:19px;background:var(--warn-soft);
+  border:1px solid var(--warn);color:var(--ink)}
+.flash span{flex:1 1 auto;min-width:0}
 /* 行右侧操作区：复习常驻，编辑/斩题悬停才出现，减少视觉噪音 */
 .rowacts{display:flex;gap:6px;align-items:center;flex:none;align-self:center;margin-left:2px}
 .rowacts .go{height:var(--ctl-sm);padding:0 14px;font-size:13px;border-color:var(--line-strong)}
@@ -541,7 +546,8 @@ label input,label select,label textarea{width:100%}
     <button class="danger" id="btn-bulk-delete">批量删除</button>
     <button class="ghost" id="btn-clear-pick">取消选择</button>
   </div>
-  <div class="list" id="list"></div>
+  <div class="flash" id="flash" hidden></div>
+<div class="list" id="list"></div>
   <div class="pager" id="pager"></div>
 </main>
 
@@ -665,7 +671,7 @@ label input,label select,label textarea{width:100%}
 <dialog id="dlg-import">
   <form class="form" id="import-form" method="dialog">
     <h2>批量导入</h2>
-    <p class="hint">用一行 <code>---</code> 分隔每道题；块内写 <code>题目: ...</code>、<code>答案: ...</code>。
+    <p class="hint">用一行 <code>---</code> 分隔每道题，也可以用空行分隔（下一段以 <code>题目:</code> 开头即可）；块内写 <code>题目: ...</code>、<code>答案: ...</code>。
       不带键名的行会接在上一条后面。整块没有键名时当作题干。</p>
     <label>粘贴内容
       <textarea id="import-text" rows="14" placeholder="题目: 求 lim x→0 sinx/x
@@ -1911,6 +1917,48 @@ label input,label select,label textarea{width:100%}
     $('#dlg-paper').close();
   });
 
+  // 斩题后默认列表里就看不到它了，必须给个去处，否则用户以为题没了
+  function flash(text, actions) {
+    var box = $('#flash');
+    if (!box) { return; }
+    box.innerHTML = '<span>' + esc(text) + '</span>';
+    (actions || []).forEach(function (a) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ghost mini';
+      b.textContent = a.label;
+      b.dataset.flash = a.act;
+      if (a.id) { b.dataset.id = String(a.id); }
+      box.appendChild(b);
+    });
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'ghost mini';
+    x.textContent = '知道了';
+    x.dataset.flash = 'dismiss';
+    box.appendChild(x);
+    box.hidden = false;
+  }
+
+  $('#flash').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-flash]');
+    if (!b) { return; }
+    var act = b.dataset.flash;
+    if (act === 'dismiss') { $('#flash').hidden = true; return; }
+    if (act === 'show') {
+      $('#show-suspended').checked = true;
+      $('#flash').hidden = true;
+      load();
+      renderChips();
+      return;
+    }
+    if (act === 'undo') {
+      api('/api/mistakes/' + b.dataset.id + '/resume', { method: 'POST' })
+        .then(function () { $('#flash').hidden = true; return Promise.all([load(), loadStats()]); })
+        .catch(function (err) { alert('操作失败：' + err.message); });
+    }
+  });
+
   $('#list').addEventListener('click', function (e) {
     var sb = e.target.closest('[data-act="suspend"]');
     if (sb) {
@@ -1918,7 +1966,17 @@ label input,label select,label textarea{width:100%}
       var mid = sb.dataset.id;
       var act = sb.textContent.trim() === '恢复' ? 'resume' : 'suspend';
       api('/api/mistakes/' + mid + '/' + act, { method: 'POST' })
-        .then(function () { return Promise.all([load(), loadStats()]); })
+        .then(function () {
+          if (act === 'suspend') {
+            flash('已斩题 #' + mid + '：它已移出复习池，默认列表里不再显示。', [
+              { label: '查看已斩题', act: 'show' },
+              { label: '撤销', act: 'undo', id: mid }
+            ]);
+          } else {
+            flash('已恢复 #' + mid + ' 的复习。', []);
+          }
+          return Promise.all([load(), loadStats()]);
+        })
         .catch(function (err) { alert('操作失败：' + err.message); });
       return;
     }
@@ -2269,7 +2327,13 @@ label input,label select,label textarea{width:100%}
     if (sb) {
       e.stopPropagation();
       api('/api/mistakes/' + sb.dataset.id + '/suspend', { method: 'POST' })
-        .then(function () { return Promise.all([loadArena(), loadStats()]); })
+        .then(function () {
+          flash('已斩题 #' + sb.dataset.id + '：它已移出复习池，默认列表里不再显示。', [
+            { label: '查看已斩题', act: 'show' },
+            { label: '撤销', act: 'undo', id: sb.dataset.id }
+          ]);
+          return Promise.all([loadArena(), loadStats()]);
+        })
         .catch(function (err) { alert('操作失败：' + err.message); });
       return;
     }

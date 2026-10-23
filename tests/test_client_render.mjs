@@ -528,8 +528,8 @@ test('学习页：知识点画像、树、别名与变式缺口', () => {
 });
 
 // BulkDialog 的 hooks 顺序：fields, busy, error
-test('批量修改：字段与标签方式都在', () => {
-  const fields = { status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', tags: '', tagsMode: 'add' };
+test('批量修改：字段与标签方式都在（标签方式与后端 set/add/remove 对齐）', () => {
+  const fields = { status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', source: '', paper_id: '', tags: '', tagsMode: 'add' };
   const raw = loadPlugin([fields, false, '']).plugin.__test__.BulkDialog({
     ids: [1, 2], meta: META, onClose: () => {}, onDone: () => {},
   });
@@ -537,15 +537,33 @@ test('批量修改：字段与标签方式都在', () => {
   const text = textOf(dom).join('|');
   assert.match(text, /批量修改 · 2 道/);
   assert.match(text, /标签方式/);
-  assert.match(text, /追加/);
-  assert.ok(dropdownLabels(raw).includes('覆盖'), '缺标签方式选项：覆盖');
+  assert.match(text, /来源/);
+  assert.match(text, /试卷/);
+  const labels = dropdownLabels(raw);
+  assert.ok(labels.includes('追加到原有'), '缺标签方式选项：追加到原有');
+  assert.ok(labels.includes('替换原有'), '缺标签方式选项：替换原有');
+  assert.ok(labels.includes('从原有移除'), '缺标签方式选项：从原有移除');
+  assert.ok(!labels.includes('覆盖'), '标签方式不该再有「覆盖」（后端不认 replace）');
 });
 
-// ImportDialog 的 hooks 顺序：text, result, busy
+// ImportDialog 的 hooks 顺序：text, report, busy
 test('批量导入：说明与分隔规则都在', () => {
   const dom = render(loadPlugin(['', '', false]).plugin.__test__.ImportDialog({ onClose: () => {}, onDone: () => {} }));
   const text = textOf(dom).join('|');
   assert.match(text, /批量导入/);
-  assert.match(text, /空行或 --- 分隔/);
+  assert.match(text, /空行/);
+  assert.match(text, /---/);
   assert.match(text, /导入/);
+});
+
+test('批量导入：导入后不自动关窗，逐条列出结果', () => {
+  const report = { created: 1, dup: 1, bad: 1, lines: ['第 2 段没导入：题目不能为空', '第 3 段与已有错题重复，已跳过（#7）'] };
+  const dom = render(loadPlugin(['', report, false]).plugin.__test__.ImportDialog({ onClose: () => {}, onDone: () => {} }));
+  const text = textOf(dom).join('|');
+  assert.match(text, /成功 1 条/);
+  assert.match(text, /重复跳过 1 条/);
+  assert.match(text, /失败 1 条/);
+  assert.match(text, /题目不能为空/);
+  assert.match(text, /继续导入/);
+  assert.match(text, /完成/);
 });

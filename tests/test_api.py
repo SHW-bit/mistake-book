@@ -132,6 +132,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(items[0]["question"], "这道题没有键名，整块当题干\n第二行也算题干")
         self.assertEqual(items[1]["answer"], "第一行\n第二行续上")
 
+    def test_batch_import_blank_line_split(self):
+        # 空行也能分条：下一段以本块已出现过的键开头（面板与网页的提示都这么写）
+        text = ("题目: 第一题\n答案: A\n\n"
+                "题目: 第二题\n答案: B\n")
+        items = app.parse_batch_text(text)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["question"], "第一题")
+        self.assertEqual(items[1]["question"], "第二题")
+        # 但字段内部的空行（长题干分段）不能被拆开，也不能丢字
+        text2 = "题目: 长题干第一段\n\n第二段\n答案: C\n"
+        items2 = app.parse_batch_text(text2)
+        self.assertEqual(len(items2), 1)
+        self.assertIn("长题干第一段", items2[0]["question"])
+        self.assertIn("第二段", items2[0]["question"])
+        # 只出现一次键的块，空行不拆（避免把多段解析误判成两条）
+        text3 = "题目: 单题\n\n答案: 只在后面出现\n"
+        self.assertEqual(len(app.parse_batch_text(text3)), 1)
+
     def test_batch_import_limit(self):
         status, body = self.call("POST", "/api/mistakes/batch",
                                  {"items": [{"question": "q%d" % i} for i in range(201)]})
