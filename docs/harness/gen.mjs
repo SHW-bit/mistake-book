@@ -25,27 +25,27 @@ const dark = RAW.map((r) => (r.indexOf('@media (prefers-color-scheme:dark)') ===
 
 const thumb = '<img class="mb-listthumb" alt="" src="data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2284%22 height=%2284%22%3E%3Crect width=%2284%22 height=%2284%22 fill=%22%23dfe3e8%22/%3E%3Cpath d=%22M14 60 L32 34 L46 52 L56 40 L70 60 Z%22 fill=%22%23b9c0c9%22/%3E%3C/svg%3E">';
 
-const item = (cls, q, meta, withThumb) => [
+const item = (cls, q, chips, withThumb) => [
   '<div class="mb-item ' + cls + '">',
   '  <div class="mb-row">',
   '    <input class="mb-pick" type="checkbox">',
-  withThumb ? '    ' + thumb : '',
-  '    <div style="flex:1 1 auto;min-width:0">',
+  '    <div class="mb-main">',
   '      <div class="mb-q">' + q + '</div>',
-  '      <div class="mb-meta">' + meta + '</div>',
+  '      <div class="mb-tags">' + chips + '</div>',
   '    </div>',
+  withThumb ? '    <div class="mb-thumbwrap">' + thumb + '</div>' : '',
   '  </div>',
   '  <div class="mb-rowacts"><button class="mb-act">复习</button><button class="mb-act">编辑</button><button class="mb-act">斩题</button></div>',
   '</div>',
 ].filter(Boolean).join('\n');
 
 const items = [
-  item('st-overdue', '求极限 $\\lim_{x\\to 0}\\frac{\\sin 3x}{\\tan 5x}$ 的值，并说明等价无穷小替换的条件。', '<span>高数</span><span>· 极限</span><span class="mb-badge overdue">逾期 2 天</span><span>复习 3</span>'),
-  item('st-new', '设函数 $f(x)=x^3-3x+1$，求其单调区间与极值点。', '<span>高数</span><span>· 导数</span><span>复习 0</span>', true),
-  item('st-reviewing', '计算二重积分 $\\iint_D (x+y)\\,dxdy$，其中 $D$ 由 $y=x^2$ 与 $y=x$ 围成。', '<span>高数</span><span>· 重积分</span><span class="mb-badge overdue">今天</span><span>复习 2</span>'),
-  item('st-mastered', '判断级数 $\\sum_{n=1}^{\\infty}\\frac{(-1)^n}{\\sqrt{n}}$ 的敛散性。', '<span>高数</span><span>· 级数</span><span>复习 5</span>'),
-  item('st-reviewing', '已知 $A$ 为三阶矩阵，$|A|=2$，求 $|2A^{-1}|$。', '<span>线代</span><span>· 行列式</span><span>复习 1</span>'),
-  item('st-suspended', '求曲线 $y=\\ln x$ 在点 $(1,0)$ 处的切线方程。', '<span>高数</span><span>· 导数</span><span>复习 4</span>'),
+  item('st-overdue', '求极限 $\\lim_{x\\to 0}\\frac{\\sin 3x}{\\tan 5x}$ 的值，并说明等价无穷小替换的条件。', '<span class="mb-badge overdue">逾期 2 天</span><span class="mb-tag">高数</span><span class="mb-tag k">极限</span><span class="mb-tag">概念不清</span><span class="mb-tag n">复习 3</span>'),
+  item('st-new', '设函数 $f(x)=x^3-3x+1$，求其单调区间与极值点。', '<span class="mb-tag">高数</span><span class="mb-tag k">导数</span><span class="mb-tag n">复习 0</span>', true),
+  item('st-reviewing', '计算二重积分 $\\iint_D (x+y)\\,dxdy$，其中 $D$ 由 $y=x^2$ 与 $y=x$ 围成。', '<span class="mb-badge overdue">今天</span><span class="mb-tag">高数</span><span class="mb-tag k">重积分</span><span class="mb-tag n">复习 2</span>'),
+  item('st-mastered', '判断级数 $\\sum_{n=1}^{\\infty}\\frac{(-1)^n}{\\sqrt{n}}$ 的敛散性。', '<span class="mb-tag">高数</span><span class="mb-tag k">级数</span><span class="mb-tag n">复习 5</span>'),
+  item('st-reviewing', '已知 $A$ 为三阶矩阵，$|A|=2$，求 $|2A^{-1}|$。', '<span class="mb-tag">线代</span><span class="mb-tag k">行列式</span><span class="mb-tag n">复习 1</span>'),
+  item('st-suspended', '求曲线 $y=\\ln x$ 在点 $(1,0)$ 处的切线方程。', '<span class="mb-tag">高数</span><span class="mb-tag k">导数</span><span class="mb-tag n">复习 4</span>'),
 ];
 const listHtml = items.join('\n').replace('class="mb-item st-overdue"', 'class="mb-item st-overdue on"');
 
@@ -92,3 +92,44 @@ for (const w of [420, 900, 1280]) {
   fs.writeFileSync(path.join(OUT, 'panel-' + w + '-dark.html'), page(w, dark, true), 'utf8');
 }
 console.log('生成完毕：' + OUT + '（420 / 900 / 1280，浅色 + 深色）');
+
+/* ── 录入表单页（v0.29 双栏 + 图片导入区） ─────────────────────────── */
+const field = (label, control) => '<div class="mb-field"><span>' + label + '</span>' + control + '</div>';
+const input = (ph) => '<input placeholder="' + (ph || '') + '">';
+const sel = (txt) => '<select><option>' + txt + '</option></select>';
+
+const formHtml = [
+  '<div class="mb-form mb-form2">',
+  '  <div class="mb-fmain">',
+  '    <div class="mb-fb top">',
+  '      ' + field('题目（必填）', '<textarea rows="4" placeholder="粘贴题干…（截图可直接 Ctrl+V）"></textarea>'),
+  '      <div class="mb-drop"><b>导入图片</b><small>拖入文件 · 点击选择 · 截图后 Ctrl+V 粘贴</small><small>可一次多张，每张 ≤2MB</small></div>',
+  '    </div>',
+  '    <div class="mb-fb me">' + field('我的错误答案', '<textarea rows="3" placeholder="当时是怎么想的…"></textarea>') + '</div>',
+  '    <div class="mb-fb ok">' + field('正确答案', '<textarea rows="3" placeholder="标准答案…"></textarea>') + '</div>',
+  '    <div class="mb-fb">' + field('解析', '<textarea rows="3" placeholder="关键步骤、易错点…"></textarea>') + '</div>',
+  '  </div>',
+  '  <div class="mb-fside">',
+  '    ' + field('学科', input('高数')),
+  '    ' + field('知识点', input('极限')),
+  '    ' + field('错因分类', sel('概念不清')),
+  '    ' + field('来源', input('作业')),
+  '    ' + field('标签（逗号分隔）', input('极限,洛必达')),
+  '    ' + field('难度', sel('3 星')),
+  '    ' + field('状态', sel('未复习')),
+  '    ' + field('错因详细描述', input('')),
+  '  </div>',
+  '  <div class="mb-formfoot" style="grid-column:1/-1"><button class="mb-btn primary">保存</button><button class="mb-btn">取消</button></div>',
+  '</div>',
+].join('\n');
+
+const formPage = (w, css, isDark) => '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8">\n<title>form ' + w + '</title>\n<style>\n'
+  + 'html,body{margin:0;height:100%;background:' + (isDark ? '#1b1d21' : '#f4f4f2') + ';color:' + (isDark ? '#ecedf0' : '#1c1c19') + ';font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}\n'
+  + '#stage{height:100%;width:' + w + 'px;overflow:auto;background:' + (isDark ? '#232529' : '#fff') + ';box-sizing:border-box}\n' + css.join('\n') + '\n</style></head>\n<body><div id="stage"><div class="mb">\n'
+  + formHtml + '\n</div></div></body></html>';
+
+for (const w of [420, 900, 1280]) {
+  fs.writeFileSync(path.join(OUT, 'form-' + w + '.html'), formPage(w, light, false), 'utf8');
+  fs.writeFileSync(path.join(OUT, 'form-' + w + '-dark.html'), formPage(w, dark, true), 'utf8');
+}
+console.log('表单页生成完毕');

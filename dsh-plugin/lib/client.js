@@ -78,7 +78,7 @@ window.__ModuleLoader__.load({
       '.mb-item:focus-visible{outline:2px solid var(--mb-accent);outline-offset:-2px}',
       '.mb-item.on{background:var(--mb-accent-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--mb-accent) 26%,transparent)}',
       '.mb-item.on::before{background:var(--mb-accent)}',
-      '.mb-rowacts{position:absolute;top:5px;right:6px;display:flex;gap:1px;padding:2px;border-radius:8px;background:var(--mb-surface);box-shadow:0 1px 3px rgba(0,0,0,.13);opacity:0;pointer-events:none;transition:opacity .12s}\n.mb-item:hover .mb-rowacts,.mb-item:focus-within .mb-rowacts{opacity:1;pointer-events:auto}\n.mb-act{height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--mb-dim);font-family:inherit;font-size:10.5px;cursor:pointer}\n.mb-act:hover{background:var(--mb-hover);color:var(--mb-accent)}\n.mb-listthumb{width:42px;height:42px;flex:0 0 auto;object-fit:cover;border-radius:8px;border:1px solid var(--mb-line);background:var(--mb-subtle)}',
+      '.mb-rowacts{position:absolute;bottom:4px;right:6px;display:flex;gap:1px;padding:2px;border-radius:8px;background:var(--mb-surface);box-shadow:0 1px 3px rgba(0,0,0,.13);opacity:0;pointer-events:none;transition:opacity .12s}\n.mb-item:hover .mb-rowacts,.mb-item:focus-within .mb-rowacts{opacity:1;pointer-events:auto}\n.mb-act{height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--mb-dim);font-family:inherit;font-size:10.5px;cursor:pointer}\n.mb-act:hover{background:var(--mb-hover);color:var(--mb-accent)}\n.mb-listthumb{width:100%;height:100%;object-fit:cover;display:block}',
       '.mb-row{display:flex;gap:9px;align-items:flex-start}',
       '.mb-pick{margin:3px 0 0;flex:0 0 auto;width:14px;height:14px;accent-color:var(--mb-accent);cursor:pointer}',
       '.mb-q{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45;font-size:12.5px}',
@@ -158,6 +158,38 @@ window.__ModuleLoader__.load({
       '.mb-form textarea{resize:vertical;min-height:64px;line-height:1.6}',
       '.mb-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}',
       '.mb-formfoot{display:flex;gap:8px;align-items:center;padding-top:4px;flex-wrap:wrap}',
+      /* ── v0.29 列表卡片与录入表单重排 ───────────────────────────── */
+      '.mb-main{flex:1 1 auto;min-width:0;display:grid;gap:0;cursor:pointer}',
+      '.mb-tags{display:flex;flex-wrap:nowrap;gap:4px;align-items:center;margin-top:4px;overflow:hidden}',
+      '.mb-tag{display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:5px;background:var(--mb-subtle);color:var(--mb-dim);font-size:10.5px;line-height:17px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}',
+      '.mb-tag.k{background:color-mix(in srgb,var(--mb-accent) 11%,transparent);color:color-mix(in srgb,var(--mb-accent) 78%,currentColor)}',
+      '.mb-tag.n{background:transparent;padding:0 2px;color:var(--mb-faint)}',
+      '.mb-thumbwrap{flex:0 0 auto;width:50px;height:50px;border-radius:10px;overflow:hidden;border:1px solid var(--mb-line);background:var(--mb-subtle);cursor:pointer}',
+      '.mb-list>.mb-item+.mb-item{border-top:1px solid var(--mb-line)}',
+      '.mb-form2{grid-template-columns:minmax(0,1fr) 258px;column-gap:14px;row-gap:10px;align-items:start}',
+      '@media (max-width:660px){.mb-form2{grid-template-columns:1fr}}',
+      '.mb-fmain,.mb-fside{display:grid;gap:10px;min-width:0;align-content:start}',
+      '.mb-fb{position:relative;padding:9px 11px 9px 13px;border-radius:10px;background:var(--mb-subtle);border:1px solid var(--mb-line)}',
+      '.mb-fb::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--mb-line-strong)}',
+      '.mb-fb.ok{background:color-mix(in srgb,var(--mb-ok) 7%,var(--mb-subtle));border-color:color-mix(in srgb,var(--mb-ok) 22%,var(--mb-line))}',
+      '.mb-fb.ok::before{background:var(--mb-ok)}',
+      '.mb-fb.ok .mb-field>span{color:color-mix(in srgb,var(--mb-ok) 62%,currentColor)}',
+      '.mb-fb.me{background:color-mix(in srgb,var(--mb-warn) 8%,var(--mb-subtle));border-color:color-mix(in srgb,var(--mb-warn) 22%,var(--mb-line))}',
+      '.mb-fb.me::before{background:var(--mb-warn)}',
+      '.mb-fb.me .mb-field>span{color:color-mix(in srgb,var(--mb-warn) 60%,currentColor)}',
+      '.mb-fb textarea{background:var(--mb-surface);border-color:transparent}',
+      '.mb-fb textarea:focus{border-color:var(--mb-accent)}',
+      '.mb-drop{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:7px;padding:10px 8px;border-radius:9px;border:1.5px dashed var(--mb-line-strong);background:var(--mb-surface);color:var(--mb-faint);font-size:11px;text-align:center;cursor:pointer;transition:border-color .12s,background .12s,color .12s}',
+      '.mb-drop:hover,.mb-drop.over,.mb-drop:focus-visible{border-color:var(--mb-accent);background:color-mix(in srgb,var(--mb-accent) 7%,var(--mb-surface));color:var(--mb-accent);outline:0}',
+      '.mb-drop b{font-weight:600;font-size:12px;color:var(--mb-dim)}',
+      '.mb-drop:hover b,.mb-drop.over b,.mb-drop:focus-visible b{color:var(--mb-accent)}',
+      '.mb-drop small{font-size:10.5px;opacity:.85;line-height:1.45}',
+      '.mb-thumb{width:76px;height:76px}',
+      '.mb-fb.top::before{background:color-mix(in srgb,var(--mb-accent) 45%,transparent)}',
+      '.mb-fb.top{background:color-mix(in srgb,var(--mb-accent) 4%,var(--mb-surface))}',
+      '.mb-drop{margin-top:9px}',
+      '.mb-form2 .mb-formfoot{position:sticky;bottom:0;z-index:2;background:var(--mb-surface);padding:9px 0 4px;border-top:1px solid var(--mb-line);margin-top:2px}',
+      '.mb-formfoot .mb-btn.primary{height:32px;padding:0 18px;font-size:13px}',
       '.mb-chart{display:flex;align-items:flex-end;gap:3px;height:96px;padding-top:8px}',
       '.mb-col{flex:1 1 0;min-width:0;display:flex;align-items:flex-end;gap:1px;height:100%}',
       '.mb-bar{flex:1 1 0;min-width:1px;border-radius:3px 3px 0 0;background:var(--mb-accent);opacity:.85;transition:opacity .12s}',
@@ -572,6 +604,7 @@ window.__ModuleLoader__.load({
       const [dirty, setDirty] = useState(false);
       const [imgError, setImgError] = useState('');
       const fileRef = useRef(null);
+      const dropRef = useRef(null);
 
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
       const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
@@ -620,24 +653,67 @@ window.__ModuleLoader__.load({
       const choices = (id, values) => h('datalist', { id },
         (values || []).map((value) => h('option', { key: value, value })));
 
-      return h('div.mb-form', null,
-        h('div.mb-field', null, h('span', null, '题目（必填）'),
-          h('textarea', { value: form.question, onChange: set('question'), rows: 4, placeholder: '粘贴题干…（截图可直接 Ctrl+V）' })),
-        h('div.mb-row2', null,
-          h('div.mb-field', null, h('span', null, '我的错误答案'),
-            h('textarea', { value: form.my_answer, onChange: set('my_answer'), rows: 2 })),
-          h('div.mb-field', null, h('span', null, '正确答案'),
-            h('textarea', { value: form.answer, onChange: set('answer'), rows: 2 }))),
-        h('div.mb-field', null, h('span', null, '解析'),
-          h('textarea', { value: form.analysis, onChange: set('analysis'), rows: 3 })),
-        h('div.mb-row2', null,
+      const pickFiles = (list) => {
+        Array.prototype.slice.call(list || []).forEach((file) => addFile(file));
+      };
+
+      const dropHandlers = {
+        onDragOver: (event) => {
+          event.preventDefault();
+          if (dropRef.current) dropRef.current.classList.add('over');
+        },
+        onDragLeave: () => {
+          if (dropRef.current) dropRef.current.classList.remove('over');
+        },
+        onDrop: (event) => {
+          event.preventDefault();
+          if (dropRef.current) dropRef.current.classList.remove('over');
+          pickFiles(event.dataTransfer && event.dataTransfer.files);
+        },
+      };
+
+      return h('div.mb-form.mb-form2', null,
+        h('div.mb-fmain', null,
+          h('div.mb-fb.top', null,
+            h('div.mb-field', null, h('span', null, '题目（必填）'),
+              h('textarea', { value: form.question, onChange: set('question'), rows: 4, placeholder: '粘贴题干…（截图可直接 Ctrl+V）' })),
+            h('div.mb-drop', Object.assign({
+              ref: dropRef, role: 'button', tabIndex: 0, title: '导入图片',
+              onClick: () => { if (fileRef.current) fileRef.current.click(); },
+              onKeyDown: (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  if (fileRef.current) fileRef.current.click();
+                }
+              },
+            }, dropHandlers),
+              h('b', null, '导入图片'),
+              h('small', null, '拖入文件 · 点击选择 · 截图后 Ctrl+V 粘贴'),
+              h('small', null, '可一次多张，每张 ≤2MB')),
+            h('input', {
+              ref: fileRef, type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' },
+              onChange: (event) => { pickFiles(event.target.files); event.target.value = ''; },
+            }),
+            imgError ? h('div.mb-note.bad', null, imgError) : null,
+            images.length ? h('div.mb-imgs', null, images.map((img, index) => h('div.mb-thumb', { key: index },
+              h('img', { src: img.src, alt: '题目图片 ' + (index + 1) }),
+              h('button', { type: 'button', onClick: () => removeImage(index), 'aria-label': '移除这张图' }, '×')))) : null),
+          h('div.mb-fb.me', null,
+            h('div.mb-field', null, h('span', null, '我的错误答案'),
+              h('textarea', { value: form.my_answer, onChange: set('my_answer'), rows: 3, placeholder: '当时是怎么想的…' }))),
+          h('div.mb-fb.ok', null,
+            h('div.mb-field', null, h('span', null, '正确答案'),
+              h('textarea', { value: form.answer, onChange: set('answer'), rows: 3, placeholder: '标准答案…' }))),
+          h('div.mb-fb', null,
+            h('div.mb-field', null, h('span', null, '解析'),
+              h('textarea', { value: form.analysis, onChange: set('analysis'), rows: 3, placeholder: '关键步骤、易错点…' })))),
+        h('div.mb-fside', null,
           h('div.mb-field', null, h('span', null, '学科'),
             h('input', { value: form.subject, onChange: set('subject'), list: 'mb-dl-subject' }),
             choices('mb-dl-subject', meta && meta.subjects)),
           h('div.mb-field', null, h('span', null, '知识点'),
             h('input', { value: form.knowledge, onChange: set('knowledge'), list: 'mb-dl-knowledge' }),
-            choices('mb-dl-knowledge', meta && meta.knowledge))),
-        h('div.mb-row2', null,
+            choices('mb-dl-knowledge', meta && meta.knowledge)),
           h('div.mb-field', null, h('span', null, '错因分类'),
             h(Dropdown, {
               value: form.mistake_type, placeholder: '（不填）',
@@ -647,13 +723,9 @@ window.__ModuleLoader__.load({
             })),
           h('div.mb-field', null, h('span', null, '来源'),
             h('input', { value: form.source, onChange: set('source'), list: 'mb-dl-source' }),
-            choices('mb-dl-source', meta && meta.sources))),
-        h('div.mb-row2', null,
-          h('div.mb-field', null, h('span', null, '错因详细描述'),
-            h('input', { value: form.error_reason, onChange: set('error_reason') })),
+            choices('mb-dl-source', meta && meta.sources)),
           h('div.mb-field', null, h('span', null, '标签（逗号分隔）'),
-            h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' }))),
-        h('div.mb-row2', null,
+            h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' })),
           h('div.mb-field', null, h('span', null, '难度'),
             h(Dropdown, {
               value: form.difficulty,
@@ -666,19 +738,10 @@ window.__ModuleLoader__.load({
               options: [['new', '未复习'], ['reviewing', '复习中'], ['mastered', '已掌握']]
                 .map((pair) => ({ value: pair[0], label: pair[1] })),
               onChange: setValue('status'),
-            }))),
-        h('div.mb-block', null,
-          h('div.mb-field', null, h('span', null, '题目图片（≤2MB，可多张，截图后 Ctrl+V 粘贴）'),
-            h('input', { ref: fileRef, type: 'file', accept: 'image/*', onChange: (e) => {
-              const file = e.target.files && e.target.files[0];
-              if (file) addFile(file);
-              e.target.value = '';
-            } })),
-          imgError ? h('div.mb-note.bad', null, imgError) : null,
-          h('div.mb-imgs', null, images.map((img, index) => h('div.mb-thumb', { key: index },
-            h('img', { src: img.src, alt: '题目图片 ' + (index + 1) }),
-            h('button', { type: 'button', onClick: () => removeImage(index), 'aria-label': '移除这张图' }, '×'))))),
-        h('div.mb-formfoot', null,
+            })),
+          h('div.mb-field', null, h('span', null, '错因详细描述'),
+            h('input', { value: form.error_reason, onChange: set('error_reason') }))),
+        h('div.mb-formfoot', { style: { gridColumn: '1 / -1' } },
           h('button.mb-btn.primary', { type: 'button', onClick: submit, disabled: busy || !String(form.question).trim() },
             busy ? '保存中…' : (submitLabel || '保存')),
           h('button.mb-btn', { type: 'button', onClick: onCancel, disabled: busy }, '取消'),
@@ -840,7 +903,7 @@ window.__ModuleLoader__.load({
         item.tags ? h('div.mb-block', null,
           h('div.mb-label', null, '标签'),
           h('div', null, String(item.tags).split(',').filter(Boolean).map((tag) =>
-            h('span.mb-chip', { key: tag }, tag)))) : null,
+            h('span.mb-tag', { key: tag }, tag)))) : null,
         h(HistoryBlock, {
           key: item.id + ':' + (item.review_count || 0),
           id: item.id, count: item.review_count || 0,
@@ -1163,31 +1226,34 @@ window.__ModuleLoader__.load({
         return 'st-new';
       };
 
-      const row = (item) => h('div.mb-item.' + railOf(item) + (item.id === pickedId ? '.on' : ''), { key: item.id },
-        h('div.mb-row', null,
-          h('input.mb-pick', {
-            type: 'checkbox', checked: !!picked[item.id],
-            onChange: (event) => { event.stopPropagation(); togglePick(item.id); },
-            onClick: (event) => event.stopPropagation(),
-          }),
-          // 列表请求本来就带 thumbs=1（app.py 在 thumbs 时多回 image_file），这里直接用，不多发请求
-          item.image_file ? h('img.mb-listthumb', {
-            src: rawUrl('/api/images/' + encodeURIComponent(item.image_file)),
-            alt: '题目图片', loading: 'lazy',
-          }) : null,
-          h('div', { style: { flex: '1 1 auto', minWidth: '0' }, onClick: () => onOpen(item.id, 'review') },
-            h(MathText, { className: 'mb-q', text: clip(item.question, 120) }),
-            h('div.mb-meta', null,
-              item.id === pickedId && filters.due ? h('span.mb-dot') : null,
-              h('span', null, item.subject || '未分科'),
-              item.knowledge ? h('span', null, '· ' + clip(item.knowledge, 16)) : null,
-              dueText(item) ? h('span.mb-badge.overdue', null, dueText(item)) : null,
-              item.review_count ? h('span', null, '复习 ' + item.review_count) : null),
-            )),
-        h('div.mb-rowacts', null,
-          h('button.mb-act', { type: 'button', title: '复习这道', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'review'); } }, '复习'),
-          h('button.mb-act', { type: 'button', title: '编辑', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'edit'); } }, '编辑'),
-          h('button.mb-act', { type: 'button', title: item.suspended ? '恢复复习' : '斩题', onClick: (e) => { e.stopPropagation(); void suspendItem(item); } }, item.suspended ? '恢复' : '斩题')));
+      const row = (item) => {
+        const due = dueText(item);
+        return h('div.mb-item.' + railOf(item) + (item.id === pickedId ? '.on' : ''), { key: item.id },
+          h('div.mb-row', null,
+            h('input.mb-pick', {
+              type: 'checkbox', checked: !!picked[item.id],
+              onChange: (event) => { event.stopPropagation(); togglePick(item.id); },
+              onClick: (event) => event.stopPropagation(),
+            }),
+            // 列表请求本来就带 thumbs=1（app.py 在 thumbs 时多回 image_file），这里直接用，不多发请求
+            h('div.mb-main', { onClick: () => onOpen(item.id, 'review') },
+              h(MathText, { className: 'mb-q', text: clip(item.question, 120) }),
+              h('div.mb-tags', null,
+                due ? h('span.mb-badge.overdue', null, due) : null,
+                h('span.mb-tag', null, item.subject || '未分科'),
+                item.knowledge ? h('span.mb-tag.k', null, clip(item.knowledge, 16)) : null,
+                item.mistake_type ? h('span.mb-tag', null, item.mistake_type) : null,
+                item.review_count ? h('span.mb-tag.n', null, '复习 ' + item.review_count) : null)),
+            item.image_file ? h('div.mb-thumbwrap', { onClick: () => onOpen(item.id, 'review') },
+              h('img.mb-listthumb', {
+                src: rawUrl('/api/images/' + encodeURIComponent(item.image_file)),
+                alt: '题目图片', loading: 'lazy',
+              })) : null),
+          h('div.mb-rowacts', null,
+            h('button.mb-act', { type: 'button', title: '复习这道', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'review'); } }, '复习'),
+            h('button.mb-act', { type: 'button', title: '编辑', onClick: (e) => { e.stopPropagation(); onOpen(item.id, 'edit'); } }, '编辑'),
+            h('button.mb-act', { type: 'button', title: item.suspended ? '恢复复习' : '斩题', onClick: (e) => { e.stopPropagation(); void suspendItem(item); } }, item.suspended ? '恢复' : '斩题')));
+      };
 
       return h('div.mb-left', null,
         h('div.mb-toolbar', null,
@@ -1258,7 +1324,7 @@ window.__ModuleLoader__.load({
             h('label', null, h('input', { type: 'checkbox', checked: filters.suspended, onChange: (e) => patch({ suspended: e.target.checked }) }), ' 含已斩题'))) : null,
 
         chips.length ? h('div.mb-toolbar', { style: { paddingTop: '4px', paddingBottom: '4px' } },
-          chips.map(([key, label]) => h('span.mb-chip', { key },
+          chips.map(([key, label]) => h('span.mb-tag', { key },
             label,
             h('button', { type: 'button', style: { border: '0', background: 'transparent', cursor: 'pointer', color: 'inherit' }, onClick: () => clearChip(key) }, '×')))) : null,
 
@@ -1771,7 +1837,7 @@ window.__ModuleLoader__.load({
 
         (Array.isArray(report.by_step) && report.by_step.length) ? h('div.mb-block', null,
           h('div.mb-label', null, '错在哪一步 · 共 ' + report.by_step.reduce((sum, row) => sum + (row.count || 0), 0) + ' 次断点'),
-          h('div', null, report.by_step.map((row) => h('span.mb-chip', { key: row.name }, row.name, h('b', null, String(row.count))))),
+          h('div', null, report.by_step.map((row) => h('span.mb-tag', { key: row.name }, row.name, h('b', null, String(row.count))))),
           (Array.isArray(report.step_patterns) && report.step_patterns.length)
             ? h('div.mb-panel', { style: { marginTop: '8px' } },
                 report.step_patterns.map((row) => h('div.mb-hrow', { key: row.knowledge + '|' + row.step },
