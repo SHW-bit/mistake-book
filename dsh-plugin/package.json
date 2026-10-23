@@ -3,11 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "错题本 DSH 插件：把本地错题本变成模型可直接调用的 6 个工具，并附带两条预设（复习 / 答疑）",
+  "description": "错题本 DSH 插件：6 个模型工具（复习 / 检索 / 录入 / 判分）+ 两条预设 + 侧栏复习面板",
   "exports": {
-    ".": "./lib/tools.js",
+    ".": "./lib/plugin.js",
     "./tools": "./lib/tools.js",
     "./api": "./lib/api.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-session-controller"
+      ]
+    }
   }
 }

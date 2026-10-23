@@ -9,7 +9,7 @@ python app.py
 # 打开 http://127.0.0.1:8000
 ```
 
-**当前状态**：v0.21，最小闭环已跑通并通过 **132 个端到端测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。v0.21 把错题本接进 DSH：两条预设（错题复习 / 错题答疑）+ 6 个专用工具（`mb_due` / `mb_search` / `mb_get` / `mb_add` / `mb_review` / `mb_stats`），模型直接调、不过 shell，详见 5.16 节。
+**当前状态**：v0.21，最小闭环已跑通并通过 **132 个端到端测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。v0.21 把错题本接进 DSH：两条预设（错题复习 / 错题答疑）+ 6 个专用工具（`mb_due` / `mb_search` / `mb_get` / `mb_add` / `mb_review` / `mb_stats`），模型直接调、不过 shell，详见 5.16 节。阶段二把复习界面塞进 DSH 侧栏：一个「错题」面板，左列错题、右侧看题与四档评分，点「让 AI 带我复习这道」由宿主按「错题复习」预设建会话并嵌进右栏，详见 5.17 节。
 
 v0.3 换掉了固定复习阶梯，改用 **FSRS-6**（Anki 现用的开源记忆调度算法），并提供 `mb.py` 命令行 + [SKILL.md](SKILL.md)，让 DSH 里的 AI agent 能直接驱动「取题 → 出变式 → 判分 → 回写」。
 
@@ -1190,7 +1190,7 @@ Edge headless + CDP 数值断言（6 条种子题，桌面 1280px / 手机 375px
 | 层 | 内容 | 本仓库状态 |
 |---|---|---|
 | ① 预设 = 身份 + 工具面 | 两条 cordis 预设行，各挂 4 个子插件 | ✅ 阶段一 |
-| ② 面板 = 嵌宿主会话 | Client 插件，把复习界面塞进 DSH 侧栏 | ⬜ 阶段二 |
+| ② 面板 = 嵌宿主会话 | Client 插件，把复习界面塞进 DSH 侧栏 | ✅ 阶段二（见 5.17） |
 | ③ 数据 = 按需取 | `app.py` 的 30 多个 `/api/*` | ✅ 已有 |
 
 ### 5.16.1 两条预设
@@ -1232,12 +1232,12 @@ Edge headless + CDP 数值断言（6 条种子题，桌面 1280px / 手机 375px
 
 ```
 dsh-plugin/
-├── package.json          # type: module，exports 出 ./tools 与 ./api
+├── package.json          # type: module，exports 出 . / ./tools / ./api / ./client
 ├── lib/api.js            # 零依赖 HTTP 客户端 + 服务自动拉起
 ├── lib/tools.js          # 6 个工具注册（export name/inject/apply）
 ├── skills/review/SKILL.md
 ├── skills/qa/SKILL.md
-└── cordis.patch.yml      # 两条预设行的参考副本
+└── cordis.patch.yml      # 参考副本（阶段二加了根行，见 5.17.4）
 ```
 
 装配两步（已在本机做完）：
@@ -1270,6 +1270,100 @@ dsh-plugin/
 - 只有选中「错题复习」或「错题答疑」预设的会话才有这 6 个工具。
 - 阶段一没有界面：复习仍然在对话里进行，没有侧栏面板。
 - `mb_add` 不接受图片（Data URL 太长，不适合走工具参数），要加图还是用网页。
+
+## 5.17 DSH 面板：把复习界面塞进侧栏（v0.21 阶段二）
+
+阶段一给了模型工具面，但「看错题、点开一道、评分」还是得开浏览器。阶段二补的是 5.16 那张表里的第 ② 层：**一条 DSH 客户端插件**，在侧栏加一个「错题」入口，面板里左边列出错题、右边看题与评分，需要时把宿主的会话正文嵌进右栏让 AI 带着复习。
+
+### 5.17.1 为什么拆成「根行 + 预设行」
+
+客户端插件的发现机制很窄，读 `dsh-client-modules/lib/index.js` 得到三条硬约束：
+
+| 约束 | 源码位置 | 后果 |
+|---|---|---|
+| 只扫**根 loader 行** | `resolveSource(entry)` 遍历 `this.ctx.loader.entries()` | 预设里动态 mount 的行（`dsh-mistake-book/tools`）永远发现不到客户端半 |
+| 行名必须是**裸包名** | `locatePkgJson` → `exactPackageSpecifier` 对含 `/` 的子路径返回 `undefined` | 根行写成 `dsh-mistake-book/tools` 会被**静默跳过**，不报错 |
+| 必须有 `exports["./client"]` 且 `dsh.client.platform === "web"` | `parseDshClient` / `clientExportOf` | 缺一个就整条不加载 |
+
+所以本包的形态是：**同一个 npm 包，挂两次**。
+
+| 行 | 行名 | 导出 | 干什么 |
+|---|---|---|---|
+| 根行 `mistake-book-panel` | `dsh-mistake-book`（裸名） | `exports["."]` → `lib/plugin.js` | 只挂「建复习会话」路由；客户端半也随这一行被发现 |
+| 预设行 `mistake-book-tools` | `dsh-mistake-book/tools` | `exports["./tools"]` → `lib/tools.js` | 6 个 `mb_*` 工具，按预设作用域挂 |
+
+**为什么工具不写在根行**：根行是全局的，工具挂上去就会出现在所有会话里（写代码时模型也可能去调 `mb_add`）。工具面必须跟着预设走——这是阶段一定下的规矩，阶段二不改它。
+
+### 5.17.2 面板做了什么
+
+`lib/client.js`（约 420 行，无构建步骤，纯 `window.__ModuleLoader__.load()` 登记）：
+
+- **两个座位**：`main`（keyed 面板，`key: 'mistake-book'`）与 `sidebar.panellist`（`id: 'mistake-book'`、`order: 41`、`label: '错题'`）。点侧栏那行由宿主调 `ctx.layout.selectPanel('mistake-book')`。
+- **左栏列表**：`GET /api/mistakes?due=1&page_size=50`（「全部」分段去掉 `due`），题面两行截断，元信息显示学科 / 知识点 / 下次复习日。
+- **右栏详情**：题目 → 我的答案 → 「看答案与解析」折叠 → 错因 → 知识点 → 四档评分（忘了 / 模糊 / 记得 / 简单）→「让 AI 带我复习这道」。
+- **评分**：`POST /api/mistakes/<id>/review`，回执里带 `next_review_at`，就地显示「已记录 · 下次 10-24」并刷新列表（这道通常就离开了到期集合）。
+- **样式**：全部用 `--mb-*` 变量并带兜底值，跟随宿主的明暗主题；`<style>` 在工厂物化时注入一次（`id="dsh-mistake-book-css"` 去重）。
+
+**为什么组件不用 `React.createElement('div.cls')`**：`createElement` 会把 `'div.cls'` 整个当标签名，造出一个没有 class 的未知元素——CSS 一条都不生效，DOM 里却看着还在。所以文件顶部有个 20 行的 `h(sel, props, ...kids)` 自己拆 `tag.class`。
+
+### 5.17.3 建会话为什么必须走宿主
+
+浏览器的 `sessions.create` 只序列化 `{ workspaceId, cwd, sessionId }`，会把 `agentPreset` **静默丢掉**。面板自己建的会话不带「错题复习」预设，工具面与 persona 全都不在——看起来能用，实际是个裸会话。
+
+所以 `lib/session.js` 在宿主侧开了一条路由 `POST /api/mistake-book/session`，一次请求做五件事：
+
+1. `GET /api/mistakes/<id>` 读这道题（服务没起时 `api.js` 会自己拉起）；
+2. `agentPresets.resolve('mistake-review')` —— 顺带检查 `broken`：预设行在但 plugins 没激活成功时**当场拒绝**，而不是建一条没有工具的会话；
+3. `agents.create({ sessionId, meta: { cwd, agentPreset }, agentOptions, setup })` —— `meta.agentPreset` 是落盘字段；`agentOptions` 必须自己带（取 `agentDefaultModel.currentSelection()`，缺了第一次请求就抛 `has no provider/model`）；`setup` 里先 `mount` 预设再让别的 scoped 注册；
+4. `sessionTitle.rename()` 改标题为 `错题复习 · #12 · 极限`（服务没挂就如实降级 `renamed:false`）；
+5. `agent.inject()` 注入首条消息：题目 / 我的答案 / 正确答案 / 解析 / 错因 / 知识点 / 已复习次数，让模型不用先调工具就知道在复习哪道。
+
+两个容易踩的点：
+
+- **不 dispose `AgentHandle`**：`dispose()` 会拆掉刚建好的会话，agent 归宿主 ctx 的生命周期。
+- **`acquireScope` 给的是 `Symbol.asyncDispose` 租约，不是 `release()`**。漏还不会报错，但这条预设 revision 会一直有 user 挂着、永远 collect 不掉。第一版就写错成 `scope.release()`，被 `catch` 吞了，靠读 `dsh-agent-preset-registry` 源码才发现。
+
+客户端拿到 `sessionId` 后只做一件事：`sessions.retain(sessionId, { source: 'mistakeBook' })`，用框架给的 `SessionProvider` 罩住，渲染 `renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })`。多轮、流式、滚动、草稿、Enter 发送全归宿主。
+
+**`source` 绝不能写 `'mainView'`**：宿主的 ui-session / ui-layout 拿它判「谁是当前会话」，写错会把面板里的会话顶成主视图。
+
+### 5.17.4 文件与装配
+
+`@
+dsh-plugin/
+├── package.json          # exports: "." → plugin.js、"./tools"、"./api"、"./client"；dsh.client
+├── lib/plugin.js         # 根行宿主半：只 registerSessionRoute()
+├── lib/session.js        # 建复习会话（五步）
+├── lib/client.js         # 客户端面板（两个座位 + 嵌会话）
+├── lib/tools.js          # 6 个 mb_* 工具（阶段一）
+├── lib/api.js            # 零依赖 HTTP 客户端 + 服务自动拉起
+├── skills/review/SKILL.md
+├── skills/qa/SKILL.md
+└── cordis.patch.yml      # 三条 insert 的参考副本（根行 + 两条预设）
+`@
+
+装配在阶段一的两步之后多一步：把 `cordis.patch.yml` 里**第一个** `- insert:` 块（根行 `mistake-book-panel`）也追加进 profile 的 `cordis.patch.yml`。三块都要**连外层 `- insert:` 一起**粘，裸行加不进新条目（见 5.16.6）。
+
+改完**重启 DSH**（补丁在启动时读，没有热重载）。
+
+### 5.17.5 验证
+
+| 层 | 怎么验 | 结果 |
+|---|---|---|
+| 宿主半（建会话） | `node --test tests/test_plugin.mjs`（假 `agentPresets` / `agents`，不建真会话） | **14 / 14** |
+| 客户端半（装载与注册） | `node --test tests/test_client.mjs`（`vm` 里造最小 `__ModuleLoader__` 与 `document`，把文件跑一遍再调 `apply`） | **4 / 4** |
+| 服务端 | `python -m unittest discover -s tests` | **132 / 132** |
+| 补丁 | `yaml` 解析 profile 的 `cordis.patch.yml`，取 `insert` 平铺后按 id 找行 | 0 error、15 个顶层块、根行与两条预设 config 完整 |
+
+客户端测试专门钉住三件只有真启动才会暴露的错：模块 `id` 等于包名、`apply` 注册的两个座位名与 `children` 表（框架靠「children 里有非 root 座位」才发 `SessionProvider`）、样式只在工厂里注入而不在文件顶层。
+
+### 5.17.6 已知限制
+
+- **面板只在根行加载成功时出现**：行名写成子路径、`exports["./client"]` 缺失、`dsh.client.platform` 不是 `web`，三者任一都会**静默不发现**——不报错、不提示，只是侧栏没有「错题」。
+- **建会话依赖宿主服务**：`agentPresets` / `agents` / `agentDefaultModel` 任一缺席，路由返回结构化错误（`preset-unavailable` / `session-create-failed` / `model-unavailable`），面板把这句话原样显示在按钮下面。
+- **面板不写题**：录入仍在网页 / CLI / 工具里做。面板只做「挑一道 → 看 → 评分 → 要 AI 带」。
+- **一次只嵌一条会话**：换一道题再点「让 AI 带我复习」会新建一条；旧的仍在会话列表里，标题以 `错题复习` 开头，可据此辨认。
+
 
 ## 6. 关键设计决策
 

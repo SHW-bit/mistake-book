@@ -8,6 +8,16 @@
 #   2. 直接把本文件的 insert 列表追加进 profile 的 cordis.patch.yml。
 # 路径写死为绝对路径：会话的工作目录是任意的，相对路径在别处解析不出来。
 
+# 根行（面板）：宿主只从**根 loader 行**发现 dsh.client，且行名必须是**裸包名**——
+# dsh-client-modules 的 exactPackageSpecifier 对含 "/" 的子路径返回 undefined，直接静默
+# 不发现。所以这一行用 dsh-mistake-book（不是 /tools 子路径）；它只挂「建复习会话」路由
+# 与客户端面板，工具仍由上面两条预设按作用域各自挂 /tools，别在根上重复注册一份。
+- insert:
+    - id: mistake-book-panel
+      name: 'dsh-mistake-book'
+      config:
+        url: 'http://127.0.0.1:8000'
+
 - insert:
     - id: preset-mistake-review
       name: '@deepseek-ai/dsh-agent-preset'
