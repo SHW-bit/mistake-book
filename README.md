@@ -1886,7 +1886,9 @@ v0.25 之前面板和网页版还差五处「用起来能感觉到」的东西�
 
 ### 怎么看效果
 
-`dsh-plugin` 是以**目录联接**加载的（`~/.dsh/profiles/desktop/node_modules/dsh-mistake-book` → `<仓库>/dsh-plugin`），`lib/client.js` 改动**刷新页面即生效，不用重启 DSH**。只有 `package.json` 的 `dsh.client` 元数据才需要重启。
+`dsh-plugin` **v0.40 起是真实文件副本**（`~/.dsh/profiles/desktop/node_modules/dsh-mistake-book` 是普通目录，不再是目录联接）。所以改完仓库里的 `lib/client.js`，要先 `cd dsh-plugin && node install.mjs` 重新拷一次，再刷新面板页面；改 `package.json` 的 `dsh.client` 元数据还得重启 DSH。
+
+> v0.40 之前这里是 junction，改完刷新即生效 —— **那条老规矩已经不成立**，见 5.37 节。
 
 ---
 
