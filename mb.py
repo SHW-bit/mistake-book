@@ -26,7 +26,7 @@ import sys
 import app
 
 # 会写库的命令：--read-only 时一律拒绝
-WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore", "merge")
+WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore", "merge", "meta-merge")
 
 BRIEF_FIELDS = ("question", "answer", "my_answer", "error_reason")
 BRIEF_CHARS = 160
@@ -79,6 +79,8 @@ def cmd_due(args, conn) -> dict:
 
 def cmd_list(args, conn) -> dict:
     params = {"page_size": str(args.limit), "page": str(args.page)}
+    if getattr(args, "sort", ""):
+        params["sort"] = args.sort
     for key in ("q", "subject", "status", "tag", "mistake_type", "range", "knowledge"):
         value = getattr(args, key, None)
         if value:
@@ -155,6 +157,11 @@ def cmd_remind(args, conn) -> dict:
         notify.send(config, "[错题本] " + data["message"], notify.digest(data))
         data["emailed_to"] = config.get("to")
     return data
+
+
+def cmd_meta_merge(args, conn) -> dict:
+    """合并学科 / 标签。知识点有 merge，学科和标签用同一套「并脏值」思路。"""
+    return app.merge_meta(conn, args.kind, args.sources, args.to)
 
 
 def cmd_merge(args, conn) -> dict:
@@ -286,6 +293,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_due)
 
     p = sub.add_parser("list", help="按条件检索")
+    p.add_argument("--sort", default="", choices=list(app.SORT_OPTIONS),
+                   help="排序：created 录入时间 / due 到期最近 / stability 最不稳 / errors 错最多")
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--page", type=int, default=1)
     for name in ("q", "subject", "status", "tag", "mistake_type", "range", "knowledge"):
@@ -398,6 +407,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("sources", nargs="+", help="要并掉的旧知识点，可多个")
     p.add_argument("--to", required=True, help="目标规范名，可带 / 层级")
     p.set_defaults(func=cmd_merge)
+
+    p = sub.add_parser("meta-merge", help="合并学科 / 标签的脏值（如 学科 1 -> 数学）")
+    p.add_argument("kind", choices=["subject", "tag"], help="subject 学科 / tag 标签")
+    p.add_argument("sources", nargs="+", help="要并掉的旧值，可多个")
+    p.add_argument("--to", required=True, help="目标规范名")
+    p.set_defaults(func=cmd_meta_merge)
 
     p = sub.add_parser("ktree", help="知识点树：按 / 层级汇总掌握度")
     p.add_argument("--subject", default="")

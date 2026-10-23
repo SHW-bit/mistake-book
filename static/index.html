@@ -69,6 +69,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);b
 /* ---- 筛选条（批 2）---- */
 .filterbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .searchbox{flex:1;min-width:200px;display:flex}
+.sorter{flex:none;width:auto}
+.navbtns{display:flex;gap:6px;flex:none}
+.navbtns button[disabled]{opacity:.45;cursor:default}
 #btn-filter{display:inline-flex;align-items:center;gap:6px;flex:none}
 #btn-filter[aria-expanded="true"]{border-color:var(--brand);color:var(--brand);
   background:var(--brand-soft)}
@@ -543,6 +546,12 @@ label input,label select,label textarea{width:100%}
     <div class="searchbox">
       <input id="q" placeholder="搜索题目 / 答案 / 知识点 / 标签 / 来源">
     </div>
+    <select id="sort" class="sorter" aria-label="排序方式">
+      <option value="created">最新录入</option>
+      <option value="due">最快到期</option>
+      <option value="stability">最不稳定</option>
+      <option value="errors">错得最多</option>
+    </select>
     <button type="button" id="btn-filter" aria-expanded="false" aria-controls="filter-panel">
       筛选<span class="fcount" id="filter-count" hidden>0</span>
     </button>
@@ -626,8 +635,13 @@ label input,label select,label textarea{width:100%}
     <div class="varlist" id="al-list"></div>
   </details>
   <details class="panel" id="st-merge-box">
-    <summary>合并 / 清理知识点（把「111」这类脏值并到规范名）</summary>
+    <summary>合并 / 清理分类（把「111」「1」这类脏值并到规范名）</summary>
     <div class="aliasform">
+      <select id="mg-kind">
+        <option value="knowledge">知识点</option>
+        <option value="subject">学科</option>
+        <option value="tag">标签</option>
+      </select>
       <input id="mg-target" list="knowledge-list" placeholder="规范名，如 函数/单调性">
       <button type="button" id="mg-merge">合并所选</button>
     </div>
@@ -910,6 +924,10 @@ label input,label select,label textarea{width:100%}
         <button type="button" class="danger" id="btn-delete" hidden>删除</button>
         <button type="button" id="btn-mastered" hidden>已掌握（停止复习）</button>
         <button type="button" id="btn-suspend" hidden>斩题（移出复习池）</button>
+        <span class="navbtns" id="nav-btns">
+          <button type="button" class="ghost mini" id="btn-prev-item">‹ 上一题</button>
+          <button type="button" class="ghost mini" id="btn-next-item">下一题 ›</button>
+        </span>
       </div>
       <button type="button" class="ghost" id="btn-cancel">取消</button>
       <button type="submit" class="primary">保存</button>
@@ -1009,7 +1027,10 @@ label input,label select,label textarea{width:100%}
   var esc = MB.esc, stars = MB.stars, localStamp = MB.localStamp, isOverdue = MB.isOverdue;
   var $ = function (s) { return document.querySelector(s); };
   var state = { page: 1, size: 20, total: 0, editing: null, picked: {},
-    mode: 'new', images: [], imagesDirty: false, papers: [] };
+    mode: 'new', images: [], imagesDirty: false, papers: [],
+    // v0.35：弹窗里「上一题 / 下一题」沿着当前这一页的顺序走，
+    // 不跨页 —— 跨页翻会让「第几题」失去参照，用户反而不知道自己走到哪了。
+    order: [], orderIndex: -1 };
   var STATUS_LABEL = { new: '待复习', reviewing: '复习中', mastered: '已掌握' };
   var RESULT_LABEL = { again: '忘了', hard: '困难', good: '记得', easy: '简单', mastered: '已掌握' };
   var RATING_LABEL = { 1: '忘了', 2: '困难', 3: '记得', 4: '简单', 0: '已掌握' };
@@ -1039,6 +1060,9 @@ label input,label select,label textarea{width:100%}
     var p = new URLSearchParams();
     p.set('page', state.page);
     p.set('page_size', state.size);
+    // 排序不是「筛选条件」，所以不进 chip、不参与「重置全部」；
+    // 它只是换一种看法，随时可以切回来。
+    if ($('#sort').value) { p.set('sort', $('#sort').value); }
     var q = $('#q').value.trim();
     if (q) { p.set('q', q); }
     if ($('#subject').value) { p.set('subject', $('#subject').value); }
@@ -1089,6 +1113,9 @@ label input,label select,label textarea{width:100%}
 
   function renderList(data) {
     state.total = data.total;
+    state.order = data.items.map(function (it) { return it.id; });
+    state.orderIndex = -1;
+    if (data.sort && $('#sort').value !== data.sort) { $('#sort').value = data.sort; }
     var pages = Math.max(1, Math.ceil(data.total / state.size));
     var list = $('#list');
     $('#list-sub').textContent = data.total
@@ -1514,27 +1541,50 @@ label input,label select,label textarea{width:100%}
     return out;
   }
 
+  function mergeKind() { return $('#mg-kind').value; }
+
+  // 三类脏值共用这一个面板：知识点有层级（path/depth），学科和标签是扁平值。
+  // 统一成「name/depth/count」再渲染，下面那段 DOM 只写一次。
   function loadMergeList() {
+    var kind = mergeKind();
     return api('/api/meta').then(function (m) {
-      var facets = (m.knowledge || []).map(function (k) {
-        return typeof k === 'string' ? { path: k, name: k, depth: 1, count: 0 } : k;
-      });
-      if (!facets.length) {
+      var rows;
+      var hint = '';
+      if (kind === 'subject') {
+        rows = (m.subject_facets || []).map(function (f) {
+          return { value: f.name, name: f.name, depth: 1, count: f.count };
+        });
+        hint = '学科写错成「1」这种，就在这里并到「数学」。';
+      } else if (kind === 'tag') {
+        rows = (m.tag_facets || []).map(function (f) {
+          return { value: f.name, name: f.name, depth: 1, count: f.count };
+        });
+        hint = '标签一次只能改一个值，勾几个就并成同一个。';
+      } else {
+        rows = (m.knowledge || []).map(function (k) {
+          return typeof k === 'string'
+            ? { value: k, name: k, depth: 1, count: 0 }
+            : { value: k.path, name: k.name, depth: k.depth, count: k.count };
+        });
+      }
+      if (!rows.length) {
         $('#mg-list').innerHTML =
-          '<div style="font-size:12px;color:var(--muted)">还没有知识点。</div>';
+          '<div style="font-size:12px;color:var(--muted)">这一类还没有值。</div>';
         return;
       }
-      $('#mg-list').innerHTML = facets.map(function (k) {
+      $('#mg-list').innerHTML = rows.map(function (k) {
         return '<label class="varitem mgitem">' +
-          '<input type="checkbox" value="' + esc(k.path) + '">' +
-          '<span class="vq" title="' + esc(k.path) + '">' +
+          '<input type="checkbox" value="' + esc(k.value) + '">' +
+          '<span class="vq" title="' + esc(k.value) + '">' +
             new Array((k.depth || 1)).join('　') + esc(k.name) + '</span>' +
           '<span class="vm">' + (k.count || 0) + ' 题</span></label>';
       }).join('');
-      if (m.knowledge_unclassified) {
+      if (kind === 'knowledge' && m.knowledge_unclassified) {
+        hint = '另有 ' + m.knowledge_unclassified + ' 道题没填知识点，用「批量修改」补。';
+      }
+      if (hint) {
         $('#mg-list').insertAdjacentHTML('beforeend',
-          '<div style="font-size:12px;color:var(--muted);margin-top:4px">' +
-          '另有 ' + m.knowledge_unclassified + ' 道题没填知识点，用「批量修改」补。</div>');
+          '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + esc(hint) + '</div>');
       }
     }).catch(function (e) {
       $('#mg-list').innerHTML = '<div style="font-size:12px;color:var(--danger)">加载失败：' +
@@ -2022,14 +2072,47 @@ label input,label select,label textarea{width:100%}
     // 两栏布局各自滚动，换一条记录要把滚动条带回顶部。
     var body = document.querySelector('.dlgbody');
     if (body) body.scrollTop = 0;
+    syncNav();
   }
 
-  function openNew() { state.mode = 'new'; fillForm(null); $('#dlg').showModal(); }
+  function openNew() {
+    state.mode = 'new';
+    state.orderIndex = -1;
+    fillForm(null);
+    $('#dlg').showModal();
+  }
+
+  function orderPos(id) {
+    for (var i = 0; i < state.order.length; i++) {
+      if (String(state.order[i]) === String(id)) { return i; }
+    }
+    return -1;
+  }
+
+  // 翻页只在「本页」内走；到头就禁用，而不是绕回去。
+  // 绕回去会让人误以为还有下一批，实际是同一批又转了一圈。
+  function syncNav() {
+    var i = state.orderIndex;
+    var on = state.order.length > 1 && i >= 0;
+    $('#nav-btns').hidden = !on;
+    if (!on) { return; }
+    var prev = $('#btn-prev-item'), next = $('#btn-next-item');
+    prev.disabled = i <= 0;
+    next.disabled = i >= state.order.length - 1;
+    $('#nav-btns').title = '第 ' + (i + 1) + ' / ' + state.order.length + ' 题（本页）';
+  }
+
+  function stepItem(delta) {
+    var i = state.orderIndex + delta;
+    if (i < 0 || i >= state.order.length) { return; }
+    openEdit(state.order[i], state.mode === 'edit' ? 'edit' : 'review');
+  }
 
   // mode: 'review'（默认，先遮答案，点卡片就进这里）| 'edit'（直接展开可改）
   function openEdit(id, mode) {
     api('/api/mistakes/' + id).then(function (it) {
       state.mode = mode === 'edit' ? 'edit' : 'review';
+      state.orderIndex = orderPos(it.id);
       fillForm(it);
       $('#dlg').showModal();
     }).catch(function (e) { alert('打开失败：' + e.message); });
@@ -2498,20 +2581,36 @@ label input,label select,label textarea{width:100%}
     var row = e.target.closest('.varitem');
     if (row) { openEdit(row.dataset.id); }
   });
+  $('#mg-kind').addEventListener('change', function () {
+    var kind = mergeKind();
+    $('#mg-target').value = '';
+    $('#mg-target').setAttribute('list', kind === 'subject' ? 'subject-list' : 'knowledge-list');
+    $('#mg-target').placeholder = kind === 'knowledge'
+      ? '规范名，如 函数/单调性'
+      : (kind === 'subject' ? '规范学科，如 数学' : '规范标签，如 极限');
+    loadMergeList();
+  });
+
   $('#mg-merge').addEventListener('click', function () {
+    var kind = mergeKind();
     var sources = mergeSources();
     var target = $('#mg-target').value.trim();
-    if (!sources.length) { alert('先勾选要合并的知识点'); return; }
-    if (!target) { alert('填一个规范名，比如 函数/单调性'); return; }
-    if (!confirm('把 ' + sources.length + ' 个知识点并到「' + target + '」？\n' +
+    var word = kind === 'knowledge' ? '知识点' : (kind === 'subject' ? '学科' : '标签');
+    if (!sources.length) { alert('先勾选要合并的' + word); return; }
+    if (!target) { alert('填一个规范名'); return; }
+    if (!confirm('把 ' + sources.length + ' 个' + word + '并到「' + target + '」？\n' +
                  '题目会被改写，且不会自动还原。')) { return; }
-    api('/api/knowledge/merge', {
+    var url = kind === 'knowledge' ? '/api/knowledge/merge' : '/api/meta/merge';
+    var body = kind === 'knowledge'
+      ? { sources: sources, target: target }
+      : { kind: kind, sources: sources, target: target };
+    api(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sources: sources, target: target })
+      body: JSON.stringify(body)
     }).then(function (d) {
       $('#mg-target').value = '';
-      alert('已合并 ' + d.merged + ' 个知识点，改写 ' + d.moved + ' 道题 → ' + d.target);
+      alert('已处理 ' + sources.length + ' 个' + word + '，改写 ' + d.moved + ' 道题 → ' + d.target);
       return Promise.all([loadMergeList(), loadStats(), loadTree()]);
     }).catch(function (err) { alert('合并失败：' + err.message); });
   });
@@ -2847,8 +2946,11 @@ label input,label select,label textarea{width:100%}
     if (b) { clearFilter(b.dataset.clear); }
   });
 
+  $('#btn-prev-item').addEventListener('click', function () { stepItem(-1); });
+  $('#btn-next-item').addEventListener('click', function () { stepItem(1); });
+
   var timer = null;
-  ['#q', '#subject', '#paper', '#status', '#type', '#range', '#knowledge', '#tag',
+  ['#q', '#subject', '#paper', '#status', '#type', '#range', '#knowledge', '#tag', '#sort',
    '#due', '#scope-q', '#show-suspended'].forEach(function (sel) {
     $(sel).addEventListener('input', function () {
       clearTimeout(timer);

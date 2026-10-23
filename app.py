@@ -127,6 +127,20 @@ LIST_COLUMNS = ("id, subject, question, answer, analysis, my_answer, error_reaso
                 "(SELECT COUNT(*) FROM variants WHERE variants.parent_id = mistakes.id) "
                 "AS variant_count")
 
+# 排序器（v0.35）：白名单，不接 SQL 片段。
+# 为什么白名单而不是 ORDER BY 字符串拼接：sort 参数来自 URL，直接拼就是注入口子。
+SORT_OPTIONS = {
+    "created": "created_at DESC, id DESC",
+    "due": ("CASE WHEN next_review_at IS NULL OR next_review_at = '' THEN 1 ELSE 0 END, "
+            "next_review_at ASC, id DESC"),
+    # "最不稳定"：没复习过的题 stability 还是 0，把 0 排在最前会把排序器变成
+    # 「最新录入」的同义词，所以先按「是否已有 stability」分组，再在组内升序。
+    "stability": ("CASE WHEN fsrs_stability IS NULL OR fsrs_stability <= 0 THEN 1 ELSE 0 END, "
+                  "fsrs_stability ASC, review_count DESC, id DESC"),
+    "errors": "fsrs_lapses DESC, review_count DESC, id DESC",
+}
+DEFAULT_SORT = "created"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mistakes (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1505,6 +1519,91 @@ def delete_alias(conn: sqlite3.Connection, alias: str) -> None:
         raise NotFound("别名不存在: %s" % alias)
 
 
+def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
+    """学科 / 标签的取值与计数（下拉、合并面板都要用）。
+
+    kind 会参与分支判断，只认 subject / tag 两档；其余直接报错，
+    免得调用方传个拼错的名字进来静默返回空列表。
+    """
+    if kind == "subject":
+        rows = conn.execute(
+            "SELECT subject AS name, COUNT(*) AS n FROM mistakes "
+            "GROUP BY subject ORDER BY n DESC, subject").fetchall()
+        return [{"name": r[0], "count": r[1]} for r in rows]
+    if kind == "tag":
+        counts = {}
+        for (raw,) in conn.execute("SELECT tags FROM mistakes WHERE tags <> ''"):
+            for t in (raw or "").split(","):
+                t = t.strip()
+                if t:
+                    counts[t] = counts.get(t, 0) + 1
+        return [{"name": k, "count": counts[k]}
+                for k in sorted(counts, key=lambda x: (-counts[x], x))]
+    raise ValidationError("不支持的合并类型：%s（只能是 subject / tag）" % kind)
+
+
+def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dict:
+    """把若干个学科 / 标签并成一个规范名。
+
+    为什么不复用 merge_knowledge：知识点是 "/" 分层路径，合并时要把子树后缀
+    拼到新名字后面；学科和标签是扁平值，整列改写即可。两者共用的只有
+    「校验 → 计数 → 写事件」这三步，硬塞进一个函数只会到处 if。
+    """
+    kind = (kind or "").strip().lower()
+    if kind not in ("subject", "tag"):
+        raise ValidationError("不支持的合并类型：%s（只能是 subject / tag）" % kind)
+    if not isinstance(sources, list) or not sources:
+        raise ValidationError("sources 必须是非空的名称数组")
+    target = (target or "").strip()
+    if not target:
+        raise ValidationError("目标名称不能为空")
+    if len(target) > 100:
+        raise ValidationError("目标名称过长（上限 100 字）")
+
+    clean = []
+    for item in sources:
+        name = (item or "").strip() if isinstance(item, str) else ""
+        if not name or name == target or name in clean:
+            continue
+        clean.append(name)
+    if not clean:
+        raise ValidationError("没有需要合并的值")
+
+    stamp = now_str()
+    moved = []
+    for name in clean:
+        ids = []
+        if kind == "subject":
+            ids = [r[0] for r in conn.execute(
+                "SELECT id FROM mistakes WHERE subject = ?", (name,)).fetchall()]
+            if ids:
+                conn.execute("UPDATE mistakes SET subject = ?, updated_at = ? WHERE subject = ?",
+                             (target, stamp, name))
+        else:
+            for row in conn.execute("SELECT id, tags FROM mistakes WHERE tags LIKE ?",
+                                    ("%" + name + "%",)).fetchall():
+                tags = [t for t in (row[1] or "").split(",") if t]
+                if name not in tags:
+                    continue  # LIKE 是粗筛，这里必须精确确认，否则 "4" 会命中 "14"
+                out, seen = [], set()
+                for t in tags:
+                    t = target if t == name else t
+                    if t not in seen:
+                        seen.add(t)
+                        out.append(t)
+                conn.execute("UPDATE mistakes SET tags = ?, updated_at = ? WHERE id = ?",
+                             (",".join(out), stamp, row[0]))
+                ids.append(row[0])
+        moved.extend(ids)
+    conn.commit()
+
+    if moved:
+        append_event(conn, "merged_" + kind, target=target,
+                     sources=",".join(clean), count=len(moved))
+    return {"kind": kind, "target": target, "sources": clean,
+            "moved": len(moved), "ids": moved}
+
+
 def knowledge_facets(conn: sqlite3.Connection, subject: str = "") -> dict:
     """知识点下拉用的分面：每个节点带题量、层级、父节点。
 
@@ -2414,9 +2513,14 @@ def query_mistakes(conn: sqlite3.Connection, params: dict) -> dict:
     # 默认不带，保持 v0.15 定下的对外契约（列表响应里没有 image_url）。
     thumbs = str(one(params, "thumbs") or "").lower() in ("1", "true", "yes")
     cols = LIST_COLUMNS + ", image_file" if thumbs else LIST_COLUMNS
+    # 未知取值一律落回默认档，并把「实际生效的那一档」返回给前端，
+    # 免得用户传了个拼错的值、下拉却选中了一个不存在的项。
+    requested = one(params, "sort").strip().lower()
+    sort_key = requested if requested in SORT_OPTIONS else DEFAULT_SORT
+    order_by = SORT_OPTIONS[sort_key]
     rows = conn.execute(
         "SELECT " + cols + " FROM mistakes" + where_sql +
-        " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+        " ORDER BY " + order_by + " LIMIT ? OFFSET ?",
         (*args, size, (page - 1) * size),
     ).fetchall()
 
@@ -2432,7 +2536,8 @@ def query_mistakes(conn: sqlite3.Connection, params: dict) -> dict:
             items.append(item)
     else:
         items = [row_to_dict(r, include_image=False) for r in rows]
-    return {"items": items, "total": total, "page": page, "page_size": size}
+    return {"items": items, "total": total, "page": page, "page_size": size,
+            "sort": sort_key}
 
 
 def stats(conn: sqlite3.Connection) -> dict:
@@ -2494,14 +2599,17 @@ def stats(conn: sqlite3.Connection) -> dict:
 
 
 def meta(conn: sqlite3.Connection) -> dict:
-    subjects = [r[0] for r in conn.execute(
-        "SELECT DISTINCT subject FROM mistakes WHERE subject <> '' ORDER BY subject")]
-    tags = sorted({t for (raw,) in conn.execute("SELECT tags FROM mistakes WHERE tags <> ''")
-                   for t in raw.split(",") if t})
+    # v0.35：学科/标签也带计数 —— 合并面板要靠题量排序，脏值一眼可见。
+    # subjects / tags 仍是裸字符串数组，老调用方（CLI、老前端）不受影响。
+    subject_facets = _field_facets(conn, "subject")
+    tag_facets = _field_facets(conn, "tag")
+    subjects = [f["name"] for f in subject_facets]
+    tags = [f["name"] for f in tag_facets]
     facets = knowledge_facets(conn)
     sources = [r[0] for r in conn.execute(
         "SELECT DISTINCT source FROM mistakes WHERE source <> '' ORDER BY source")]
     return {"subjects": subjects, "tags": tags,
+            "subject_facets": subject_facets, "tag_facets": tag_facets,
             # v0.34：knowledge 从「字符串数组」升级成带 count/depth/parent 的 facets；
             # knowledge_flat 保留旧形状，老调用方（CLI、老前端）不至于一升级就断。
             "knowledge": facets["items"],
@@ -3088,6 +3196,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                 body = self._read_json()
                 return self._json(200, {"ok": True, "data": merge_knowledge(
                     conn, body.get("sources") or body.get("from") or [],
+                    body.get("target") or body.get("to") or "")})
+            if path == "/api/meta/merge" and method == "POST":
+                body = self._read_json()
+                return self._json(200, {"ok": True, "data": merge_meta(
+                    conn, body.get("kind") or "",
+                    body.get("sources") or body.get("from") or [],
                     body.get("target") or body.get("to") or "")})
             match = re.fullmatch(r"/api/knowledge/aliases/(.+)", path)
             if match and method == "DELETE":

@@ -2256,5 +2256,140 @@ class ApiTest(unittest.TestCase):
         self.assertEqual([ev["id"] for ev in body["data"]["items"]], [mid])
 
 
+    # ------------------------------------------------------------------ #
+    # v0.35：列表排序器 / 学科与标签合并
+    # ------------------------------------------------------------------ #
+    def test_list_sort_options(self):
+        """排序器四档 + 非法值回落。"""
+        a = self.create(question='错最多')['id']
+        b = self.create(question='最快到期')['id']
+        c = self.create(question='最新录入')['id']
+        for _ in range(3):
+            self._review(a, 'again')
+        self._make_due(b, 1)          # b 昨天就到期了
+
+        _, body = self.call('GET', '/api/mistakes?sort=errors')
+        self.assertEqual(body['data']['sort'], 'errors')
+        self.assertEqual(body['data']['items'][0]['id'], a)
+
+        _, body = self.call('GET', '/api/mistakes?sort=due')
+        self.assertEqual(body['data']['sort'], 'due')
+        self.assertEqual(body['data']['items'][0]['id'], b)
+
+        _, body = self.call('GET', '/api/mistakes?sort=stability')
+        self.assertEqual(body['data']['items'][0]['id'], a)
+
+        # 拼错的档位落回默认，并把实际生效的档回传，前端下拉才不会选中不存在的项
+        _, body = self.call('GET', '/api/mistakes?sort=bogus')
+        self.assertEqual(body['data']['sort'], 'created')
+        self.assertEqual(body['data']['items'][0]['id'], c)
+
+    def test_meta_field_facets(self):
+        self.create(question='q1', subject='数学', tags='极限,函数')
+        self.create(question='q2', subject='数学', tags='极限')
+        self.create(question='q3', subject='1', tags='4,14')
+        _, body = self.call('GET', '/api/meta')
+        data = body['data']
+        sf = {f['name']: f['count'] for f in data['subject_facets']}
+        self.assertEqual(sf['数学'], 2)
+        self.assertEqual(sf['1'], 1)
+        self.assertEqual(data['subject_facets'][0]['name'], '数学')   # 题多的排前面
+        tf = {f['name']: f['count'] for f in data['tag_facets']}
+        self.assertEqual(tf['极限'], 2)
+        self.assertEqual(tf['4'], 1)
+        self.assertEqual(tf['14'], 1)                                 # 子串不能串味
+        # 老字段仍是裸字符串数组，CLI / 老前端不受影响
+        self.assertEqual(data['subjects'][0], '数学')
+        self.assertIn('极限', data['tags'])
+
+    def test_meta_merge_subject(self):
+        bad = self.create(question='学科写错', subject='1')['id']
+        self.create(question='正常', subject='数学')
+        status, body = self.call('POST', '/api/meta/merge', {
+            'kind': 'subject', 'sources': ['1'], 'target': '数学'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['data']['kind'], 'subject')
+        self.assertEqual(body['data']['moved'], 1)
+        _, got = self.call('GET', '/api/mistakes/%d' % bad)
+        self.assertEqual(got['data']['subject'], '数学')
+
+    def test_meta_merge_tag_is_exact(self):
+        """LIKE 是粗筛：并掉 '4' 不能把 '14' 一起吃了。"""
+        item = self.create(question='标签陷阱', tags='4,14')['id']
+        status, body = self.call('POST', '/api/meta/merge', {
+            'kind': 'tag', 'sources': ['4'], 'target': '极限'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['data']['moved'], 1)
+        _, got = self.call('GET', '/api/mistakes/%d' % item)
+        self.assertEqual(got['data']['tags'], '极限,14')
+        # 同一个标签并两次不会写出重复项
+        self.call('POST', '/api/meta/merge', {
+            'kind': 'tag', 'sources': ['极限'], 'target': '极限'})
+        _, got = self.call('GET', '/api/mistakes/%d' % item)
+        self.assertEqual(got['data']['tags'], '极限,14')
+
+    def test_meta_merge_validation(self):
+        for payload in ({'kind': 'knowledge', 'sources': ['a'], 'target': 'b'},
+                        {'kind': 'subject', 'sources': [], 'target': 'b'},
+                        {'kind': 'subject', 'sources': ['a'], 'target': '   '}):
+            status, body = self.call('POST', '/api/meta/merge', payload)
+            self.assertEqual(status, 400, body)
+            self.assertEqual(body['error']['code'], 'VALIDATION_ERROR')
+
+    def test_meta_merge_writes_event(self):
+        self.create(question='事件', subject='1')
+        self.call('POST', '/api/meta/merge', {
+            'kind': 'subject', 'sources': ['1'], 'target': '数学'})
+        _, body = self.call('GET', '/api/events?kind=merged_subject')
+        self.assertEqual(len(body['data']['items']), 1)
+        self.assertEqual(body['data']['items'][0]['target'], '数学')
+
+    def test_mb_list_sort_cli(self):
+        a = self.create(question='错最多')['id']
+        self.create(question='别的')
+        self._review(a, 'again')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(['--db', self.db, 'list', '--sort', 'errors'])
+        self.assertEqual(code, 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data['sort'], 'errors')
+        self.assertEqual(data['items'][0]['id'], a)
+
+    def test_mb_meta_merge_cli(self):
+        self.create(question='脏学科', subject='1')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(['--db', self.db, 'meta-merge', 'subject', '1', '--to', '数学'])
+        self.assertEqual(code, 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data['kind'], 'subject')
+        self.assertEqual(data['moved'], 1)
+        self.assertEqual(data['target'], '数学')
+
+    def test_mb_meta_merge_read_only_refused(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(['--db', self.db, '--read-only', 'meta-merge', 'tag', '4', '--to', 'x'])
+        self.assertEqual(code, 2)
+        self.assertIn('read-only', out.getvalue())
+
+    def test_static_v035_ui(self):
+        """排序下拉、弹窗翻页、合并面板三档（v0.35）。"""
+        with urllib.request.urlopen(self.base + '/', timeout=5) as resp:
+            html = resp.read().decode('utf-8')
+        self.assertIn('id="sort"', html)
+        self.assertIn("p.set('sort'", html)
+        for value in ('created', 'due', 'stability', 'errors'):
+            self.assertIn('<option value="%s">' % value, html)
+        self.assertIn('id="btn-prev-item"', html)
+        self.assertIn('id="btn-next-item"', html)
+        for name in ('function stepItem(', 'function syncNav(', 'function orderPos('):
+            self.assertIn(name, html)
+        self.assertIn('id="mg-kind"', html)
+        self.assertIn("'/api/meta/merge'", html)
+        for value in ('knowledge', 'subject', 'tag'):
+            self.assertIn('<option value="%s">' % value, html)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
