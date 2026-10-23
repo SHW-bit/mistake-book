@@ -18,6 +18,7 @@ Thumbs.db
 desktop.ini
 
 # 临时文件
+.build/
 *.log
 *.tmp
 *.bak
