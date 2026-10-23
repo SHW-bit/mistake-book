@@ -106,9 +106,14 @@ python mb.py arena --limit 5
 
 ### 阶段 3 · 出变式题
 
-先查库存：`python mb.py variant next <id>`
+先查库存：
+- 在 DSH 面板里 → 直接看 `mb_due` / `mb_search` 的返回行，形如 `#12 [高数] 求极限（复习中 · 无变式）`，`无变式` 就是该补的题
+- 在 CLI 里 → `python mb.py variant next <id>`
+
 - 有现成的 → 直接用（系统按 `times_used` 升序轮换，保证不会总出同一道）
-- 没有 → 现场出，出完存回去：`python mb.py variant add <id> --question 题干 --answer 答案`
+- 没有 → 现场出，出完存回去：
+  - 面板里：`mb_review(id=12, rating=..., variant_question=..., variant_answer=...)`（见阶段 4）
+  - CLI 里：`python mb.py variant add <id> --question 题干 --answer 答案`
 
 **出题时不给答案。** 答案等学生答完再对。
 
@@ -137,12 +142,25 @@ python mb.py review 12 --rating hard --step 计算
 
 **更省事的做法**：如果你这一轮现场出了变式（不是从库存里拿的），直接把它塞进 review 一起提交，一次调用同时判分 + 入库 + 计一次使用：
 
+面板里（`mb_review` 工具，v0.36 起支持）：
+
+```
+mb_review(id=12, rating="hard",
+          variant_question="求 f(x)=x^2+4x 的单调区间",
+          variant_answer="(-2,+∞) 递增",
+          variant_knowledge="函数/单调性")
+```
+
+CLI 里：
+
 ```bash
 python mb.py review 12 --rating hard \
   --variant-question "求 f(x)=x^2+4x 的单调区间" \
   --variant-answer "(-2,+∞) 递增" \
   --variant-knowledge "函数/单调性"
 ```
+
+回执会告诉你是新建还是命中去重：「已存变式：#41」/「变式已在库中：#41（复用，已计一次练习）」。
 
 同一题干会自动去重（按去掉所有空白后的文本比对），重复提交不会堆出重复记录。
 

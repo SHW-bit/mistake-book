@@ -49,10 +49,14 @@ function statusLabel(status) {
   return STATUS_LABEL[status] || status || '待复习';
 }
 
-/** 一行摘要：#id [学科] 题干（状态）。 */
+/** 一行摘要：#id [学科] 题干（状态 · 变式）。 */
 function brief(item) {
+  // v0.36：列表里带上变式库存。-1 / 缺字段（老接口）就当不知道，不显示；
+  // 0 条要显式说「无变式」，否则 agent 列到期题时看不出谁该补题。
+  const variants = typeof item.variant_count === 'number' ? item.variant_count : null;
+  const tail = variants === null ? '' : (variants ? ' · 变式 ' + variants : ' · 无变式');
   return '#' + item.id + ' [' + (item.subject || '未分科') + '] '
-    + clip(item.question, 60) + '（' + statusLabel(item.status) + '）';
+    + clip(item.question, 60) + '（' + statusLabel(item.status) + tail + '）';
 }
 
 /** 拼查询串，跳过空值。 */
@@ -243,9 +247,13 @@ function addTool(config) {
         mistake_type: args.mistake_type || '',
         source: args.source || '',
         tags: args.tags || '',
-        difficulty: clampInt(args.difficulty, 0, 0, 5),
         paper_id: clampInt(args.paper_id, 0, 0, 2147483647),
       };
+      // v0.37 修：difficulty 不传时以前塞 0，而服务端只收 1-5，导致「不填难度就录不进去」。
+      // 不传就不发这个字段，让服务端用默认值 3。
+      if (args.difficulty !== undefined && args.difficulty !== null && args.difficulty !== '') {
+        body.difficulty = clampInt(args.difficulty, 3, 1, 5);
+      }
       const item = await call(s, '/api/mistakes', { method: 'POST', body: JSON.stringify(body) });
       return {
         text: '已录入 #' + item.id + ' · ' + (item.subject || '未分科')
@@ -276,6 +284,18 @@ function reviewTool(config) {
           enum: REVIEW_STEPS,
           description: '这次错在解题流程的哪一步（可选，用于沉淀个人易错模式）',
         },
+        variant_question: {
+          type: 'string',
+          description: '本轮现场出的变式题题干（可选；与这次评分同一次提交入库，自动去重并计一次练习）',
+        },
+        variant_answer: {
+          type: 'string',
+          description: '变式题答案（可选，需配合 variant_question）',
+        },
+        variant_knowledge: {
+          type: 'string',
+          description: '变式题知识点（可选，留空则继承母题）',
+        },
       },
       required: ['id', 'rating'],
     },
@@ -294,6 +314,19 @@ function reviewTool(config) {
         if (REVIEW_STEPS.indexOf(step) < 0) throw new Error('step 只能是 ' + REVIEW_STEPS.join(' / '));
         body.step = step;
       }
+      // v0.36：变式随评分一起入库。后端 _extract_variant() 认这套字段名，
+      // 与 mb.py 的 --variant-question 同源，三端写出来是同一份数据。
+      const vQuestion = String(args.variant_question || '').trim();
+      const vAnswer = String(args.variant_answer || '').trim();
+      const vKnowledge = String(args.variant_knowledge || '').trim();
+      if (!vQuestion && (vAnswer || vKnowledge)) {
+        throw new Error('variant_answer / variant_knowledge 必须和 variant_question 一起提交');
+      }
+      if (vQuestion) {
+        body.variant_question = vQuestion;
+        if (vAnswer) body.variant_answer = vAnswer;
+        if (vKnowledge) body.variant_knowledge = vKnowledge;
+      }
       const data = await call(s, '/api/mistakes/' + id + '/review', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -303,6 +336,15 @@ function reviewTool(config) {
       if (row && row.next_review_at) lines.push('下次复习：' + row.next_review_at);
       if (row && typeof row.stage === 'number') lines.push('当前阶段：' + row.stage);
       if (row && typeof row.review_count === 'number') lines.push('累计复习：' + row.review_count + ' 次');
+      // v0.36：把后端已经回传的变式回执透出来，agent 才知道刚才是新建还是命中去重。
+      const variant = row && row.variant && typeof row.variant === 'object' ? row.variant : null;
+      if (variant && typeof variant.id === 'number') {
+        lines.push(variant.duplicate
+          ? '变式已在库中：#' + variant.id + '（复用，已计一次练习）'
+          : '已存变式：#' + variant.id);
+      } else if (vQuestion) {
+        lines.push('变式未入库：服务端没有回执（可能已达单题变式上限，或服务端版本过旧）');
+      }
       return { text: lines.join('\n') };
     },
   };

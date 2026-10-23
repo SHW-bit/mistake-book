@@ -10,7 +10,9 @@ python app.py
 # 打开 http://127.0.0.1:8000
 ```
 
-**当前状态**：v0.35，最小闭环已跑通并通过 **169 个端到端测试 + 73 个 node 测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。v0.21 把错题本接进 DSH：两条预设（错题复习 / 错题答疑）+ 8 个专用工具（`mb_due` / `mb_search` / `mb_get` / `mb_add` / `mb_review` / `mb_stats` / `mb_weak_steps` / `mb_events`），模型直接调、不过 shell，详见 5.16 节。阶段二把复习界面塞进 DSH 侧栏：一个「错题」面板，左列错题、右侧看题与四档评分，点「让 AI 带我复习这道」由宿主按「错题复习」预设建会话并嵌进右栏，详见 5.17 节。v0.22 是阶段三：面板补全（面板里直接新建、搜索、按学科筛选、翻复习历史）、统计增强（录入/复习趋势柱、保持度分桶、最该补的知识点、错因与学科分布）、AI 闭环（评分时顺手记「错在哪一步」，`mb_weak_steps` 与 `mb_events` 把断点分布与事件流交给模型），详见 5.18 节。v0.23 把网页版的全部功能（组卷打印除外）搬进了 DSH 面板：六个页签（错题 / 学习 / 计划 / 分析 / 再战 / 回收站）、筛选抽屉与条件 chips、批量修改与批量删除、全字段编辑弹窗（含多图与 Ctrl+V 粘贴）、变式题、复习历史、导出 CSV/JSON、到期提醒横幅；代理层同时放开 PUT/DELETE/PATCH 并支持 `raw=1` 原样回传文件流，详见 5.19 节。v0.24 收了一轮交互细节：**18 处原生 `<select>` 换成同一套自定义下拉**（点击/键盘/点外部关闭，选中项打勾）、**计划页每日上限改成数字输入并存进 settings**（`daily_limit`，1–200，默认 20，`/api/plan` 不传就跟随它）、**计划里的题能直接点进错题详情**并带「← 返回计划」，详见 5.20 节。v0.24.1 修了自定义下拉在深色主题下「白底 + 继承来的浅色字」看不清的问题（弹层现在按宿主文字亮度选深/浅配色，并加了对比度回归测试），同时把弹层从 `absolute` 改成 `fixed` 按按钮位置定位，不再被滚动容器裁掉，详见 5.20.6、5.20.7。v0.24.2 修了三个用起来会「丢东西」的 bug：**斩题后没有任何提示、条目直接从列表消失**（现在会弹提示条，带「查看已斩题 / 撤销」）；**面板批量修改的标签方式选了「覆盖」必然 400**（后端只认 `set`/`add`/`remove`）；**批量导入用空行分隔的多道题会被静默合并成一条、且结果一出来窗口就关掉看不到**（现在空行也能分条，结果常驻显示成功 / 重复 / 失败与逐条原因），详见 5.21 节。v0.25 让 **DSH 面板也能渲染 LaTeX 公式**：后端开一个只放行 `static/vendor/katex/` 的 `/api/asset` 只读口，面板经宿主代理的 `raw=1` 通道取回 `katex.min.js`，用 **MathML 输出**（不经 CSS/字体，因此不用把 26 万字节 woff2 塞过文本通道），题面 / 答案 / 解析 / 变式 / 计划 / 再战 / 回收站共 10 处全部生效；顺带修正了 5.15.1 里「网页列表卡片也渲染公式」的文档漂移，详见 5.22 节。
+**当前状态**：v0.36，最小闭环已跑通并通过 **169 个端到端测试 + 79 个 node 测试** —— 录入（单条 + 批量粘贴解析）→ 存储 → 检索 → FSRS 复习调度 → 复习历史 → 变式题库 → 学习画像 / 掌握门禁 → **知识点树** → 今日复习计划 → 斩题（挂起）→ 学习分析 → 组卷打印 → 再战区 → **到期提醒** → 统计 → 导出。v0.7 从 GitHub 同类项目里挑了三个零依赖的功能补上：按天排的复习计划、把已会但不舍得删的题移出复习池、录入/复习趋势与遗忘风险分析。v0.8 补上组卷打印：复用列表筛选条件抽题，服务端渲染 A4 试卷页，浏览器 Ctrl+P 存 PDF。v0.9 补上再战区：错两次的题自动进区、上次答错后连对两次自动出区，与「斩题 / 恢复」直接配对。v0.10 补上三件事：**到期提醒**（页面横幅 + 桌面通知 + CLI 发邮件）、**知识点树**（知识点用 / 分层自动成树，别名把不同写法合并）、**变式题自动积累**（复习回写时一并提交变式就入库，并按缺口排优先级）。v0.11 补上**自动备份**（启动时自动留快照、按份数轮转、`mb.py backup` 手动备）与**手机端适配**（导航横滑、输入框 16px 防 iOS 缩放、弹窗全屏、操作区吸底）。v0.12 补上两件事：**独立解析字段**（`analysis` 与 `answer` 分开存，自测/打印时不再等于开卷）与**再战区阈值可配**（进区、出区门槛在网页上直接改，存 `settings` 表）。v0.13 补上三件事：**回收站**（删除不再是物理消失，整条题目 + 复习历史快照进回收站，可原样恢复，只保留最近 200 条）、**`mb.py restore`**（从备份文件恢复整个库，覆盖前自动留一份安全快照）、**错因详细描述换成多行输入框**（长文本不再只能横着滚）。v0.14 做了一轮**性能优化**（只改查询与索引，不动 API 语义）：5 万题规模下首屏 972ms → 77ms、统计 931ms → 90ms、组卷 523ms → 59ms，详见 5.9 节。v0.14.1 修了 `one()` 只认 HTTP 列表参数的 bug：此前 CLI 传标量会被截成首字（`mb.py list --q 极限` 只搜「极」、`--limit 20` 只取 2 条），网页端不受影响。v0.15 把三件"会随题量变疼"的事处理了：**图片改为落盘**（内容寻址存 `data/images/`，库里只留文件名，老库启动时自动迁移）、**导出改流式**（`/api/export.json` 与 CSV 边生成边写，2 万题峰值内存 139MB → 1.1MB）、**前端有了单元测试**（纯函数抽到 `static/lib.js`，`node --test` 跑，由 Python 测试统一入口驱动）。v0.16 把界面按参考项目（今知错题本 Electron 版）的排版体系重做了一遍：13px 正文、6px 卡片圆角、发丝分隔线、克制的单一蓝色强调、30px 紧凑控件，**只改视觉层**，接口、数据结构与交互逻辑未动，详见 5.11 节。v0.17 重做了列表卡片：左侧 3px 状态轨按复习状态着色、题面升到 14px/500、知识点 chip 加重、到期改成相对时间、缩略图进列表、「斩题」改为悬停显示，详见 5.12 节。v0.18 补上「**复习先遮答案**」：打开已有错题时答案与解析默认折叠，逼学生先自己重做一遍，点「看答案与解析」才展开，详见 5.13 节。v0.19 起把界面按「纸面」方向整体重做（暖白画布、墨绿强调、14px 正文、32px 控件、左侧栏 + 手机底部 tabbar），分 5 批推进，**批 1（设计系统 + 壳层）、批 2（错题列表页）、批 3（弹窗）、批 4（学习 / 计划 / 分析 / 回收站 / 再战区）已完成**，详见 5.14 节。v0.20 补上四项：**公式输入（LaTeX，KaTeX 本地内置、无 CDN）**、**一道题多张图（≤6 张，内容寻址去重）**、**试卷维度**（题目归卷、按卷筛选、卷内题数统计）、**批量改状态 / 学科 / 错因 / 知识点 / 来源 / 试卷 / 难度 / 标签**，详见 5.15 节。v0.21 把错题本接进 DSH：两条预设（错题复习 / 错题答疑）+ 8 个专用工具（`mb_due` / `mb_search` / `mb_get` / `mb_add` / `mb_review` / `mb_stats` / `mb_weak_steps` / `mb_events`），模型直接调、不过 shell，详见 5.16 节。阶段二把复习界面塞进 DSH 侧栏：一个「错题」面板，左列错题、右侧看题与四档评分，点「让 AI 带我复习这道」由宿主按「错题复习」预设建会话并嵌进右栏，详见 5.17 节。v0.22 是阶段三：面板补全（面板里直接新建、搜索、按学科筛选、翻复习历史）、统计增强（录入/复习趋势柱、保持度分桶、最该补的知识点、错因与学科分布）、AI 闭环（评分时顺手记「错在哪一步」，`mb_weak_steps` 与 `mb_events` 把断点分布与事件流交给模型），详见 5.18 节。v0.23 把网页版的全部功能（组卷打印除外）搬进了 DSH 面板：六个页签（错题 / 学习 / 计划 / 分析 / 再战 / 回收站）、筛选抽屉与条件 chips、批量修改与批量删除、全字段编辑弹窗（含多图与 Ctrl+V 粘贴）、变式题、复习历史、导出 CSV/JSON、到期提醒横幅；代理层同时放开 PUT/DELETE/PATCH 并支持 `raw=1` 原样回传文件流，详见 5.19 节。v0.24 收了一轮交互细节：**18 处原生 `<select>` 换成同一套自定义下拉**（点击/键盘/点外部关闭，选中项打勾）、**计划页每日上限改成数字输入并存进 settings**（`daily_limit`，1–200，默认 20，`/api/plan` 不传就跟随它）、**计划里的题能直接点进错题详情**并带「← 返回计划」，详见 5.20 节。v0.24.1 修了自定义下拉在深色主题下「白底 + 继承来的浅色字」看不清的问题（弹层现在按宿主文字亮度选深/浅配色，并加了对比度回归测试），同时把弹层从 `absolute` 改成 `fixed` 按按钮位置定位，不再被滚动容器裁掉，详见 5.20.6、5.20.7。v0.24.2 修了三个用起来会「丢东西」的 bug：**斩题后没有任何提示、条目直接从列表消失**（现在会弹提示条，带「查看已斩题 / 撤销」）；**面板批量修改的标签方式选了「覆盖」必然 400**（后端只认 `set`/`add`/`remove`）；**批量导入用空行分隔的多道题会被静默合并成一条、且结果一出来窗口就关掉看不到**（现在空行也能分条，结果常驻显示成功 / 重复 / 失败与逐条原因），详见 5.21 节。v0.25 让 **DSH 面板也能渲染 LaTeX 公式**：后端开一个只放行 `static/vendor/katex/` 的 `/api/asset` 只读口，面板经宿主代理的 `raw=1` 通道取回 `katex.min.js`，用 **MathML 输出**（不经 CSS/字体，因此不用把 26 万字节 woff2 塞过文本通道），题面 / 答案 / 解析 / 变式 / 计划 / 再战 / 回收站共 10 处全部生效；顺带修正了 5.15.1 里「网页列表卡片也渲染公式」的文档漂移，详见 5.22 节。
+
+**v0.36（把变式题这条链路接给 agent）**：变式题的数据结构、去重、轮换、缺口排序早在 v0.10 就齐了，网页端也能增删练，但 **DSH 面板里那 8 个工具一条都用不上它** —— `mb_review` 只发 `{rating, step}`，后端 `_extract_variant()` 认的三个 `variant_*` 字段没有任何 agent 侧代码会发；`mb_due` / `mb_search` 的行也不带变式库存，agent 列到期题时看不出哪道该补题。这一版把三处接上：**① `mb_review` 透传变式** —— 参数表加 `variant_question` / `variant_answer` / `variant_knowledge`，判分和入库一次调用完成；只给答案不给题干会当场拒绝（不发请求）。**② 回执说清去重结果** —— 「已存变式：#41」/「变式已在库中：#41（复用，已计一次练习）」；提交了题干却没回执时明确报「变式未入库」，绝不静默成功。**③ 列表行带库存** —— `brief()` 输出 `#12 [高数] 求极限（复习中 · 无变式）`，`无变式` 就是该补的题；老接口没这个字段时不会瞎猜。顺手修了个真 bug：`mb_add` 不传难度时以前塞 `difficulty: 0`，而服务端只收 1-5，**导致「不填难度就录不进去」**——现在不传就不发这个字段。`SKILL.md` 的阶段 3 / 阶段 4 也从「只说 `python mb.py`」改成面板工具与 CLI 两套写法。详见 5.33 节。
 
 **v0.35（列表排序器 + 学科标签合并 + 弹窗内翻页）**：三件用久了会烦的小事。**① 列表排序** —— 以前只能按录入时间倒序，「最该先复习的」「错得最多的」只能自己翻。现在 `?sort=` 有四档：`created`（最新录入，默认）/ `due`（最快到期，没排期的沉底）/ `stability`（最不稳定）/ `errors`（错得最多）。档位是白名单常量 `SORT_OPTIONS`，不是把 URL 里的串拼进 `ORDER BY`（那是注入口子）；非法值静默落回 `created`，并把实际生效档回传，前端下拉才不会选中一个不存在的项。网页端「最新录入 ▾」在搜索框右边，只影响顺序、不进筛选 chips、不参与「重置」。**② 学科与标签的脏值合并** —— v0.34 只收拾了知识点，`学科` 里还躺着 `1`、`未分类`，`标签` 里躺着 `4`。学习页合并面板加了类型选择（知识点 / 学科 / 标签），后两者走新的 `POST /api/meta/merge`：`_field_facets()` 给两边都算「值 + 题数」，合并时整列改写。标签是逗号分隔的扁平值，必须先 `LIKE '%x%'` 粗筛**再精确比对**（否则 `4` 会命中 `14`，有专门的回归测试钉住）。知识点是 `/` 分层要拼后缀、学科标签是整列改写，所以没硬塞进同一个函数。**③ 弹窗内翻页** —— 复习完一道要退出去再点下一道，中间那步很烦。现在弹窗底部有「‹ 上一题 / 下一题 ›」，按**当前列表顺序**在本页内翻，到头自动置灰；跨页不翻。顺手修了 `stability` 排序的一个真 bug：`fsrs_stability = 0`（从没复习过）被排在最前，让这一档实际等于「最新录入」的同义词 —— 现在未复习的整组沉到后面。
 
@@ -104,14 +106,15 @@ v0.3 换掉了固定复习阶梯，改用 **FSRS-6**（Anki 现用的开源记�
 | **列表排序器**（最新录入 / 最快到期 / 最不稳定 / 错得最多，白名单防注入） | ✅ | [app.py](app.py) `SORT_OPTIONS` / `DEFAULT_SORT`、`query_mistakes()` 的 `sort` 参数；[index.html](static/index.html) `#sort` 下拉与 `query()`；[mb.py](mb.py) `list --sort` |
 | **学科 / 标签合并清理**（多选脏值并到规范名，标签精确匹配不串味） | ✅ | [app.py](app.py) `_field_facets()` / `merge_meta()`、`POST /api/meta/merge`；[mb.py](mb.py) `meta-merge`；[index.html](static/index.html) `#mg-kind` / `loadMergeList()` |
 | **弹窗内上一题 / 下一题**（按当前列表顺序在本页翻） | ✅ | [index.html](static/index.html) `#btn-prev-item` / `#btn-next-item`、`orderPos()` / `syncNav()` / `stepItem()` |
-| **变式题自动积累**（复习回写时带变式一起入库，去重计数） | ✅ | app.py 的 _extract_variant()、create_variant(dedup=True)；mb.py review --variant-question |
+| **变式题自动积累**（复习回写时带变式一起入库，去重计数） | ✅ | app.py 的 _extract_variant()、create_variant(dedup=True)；mb.py review --variant-question；[tools.js](dsh-plugin/lib/tools.js) `mb_review` 的 `variant_*` 三参数（v0.36） |
+| **变式库存在列表里可见**（到期/搜索结果标「无变式」或「变式 N」） | ✅ | [tools.js](dsh-plugin/lib/tools.js) `brief()`；数据来自 [app.py](app.py) `LIST_COLUMNS` 的 `variant_count` |
 | **变式缺口提示**（谁最该补变式：变式少优先，其次错得多） | ✅ | app.py 的 variant_gaps()、GET /api/variants/gaps；学习页「缺少变式题」列表 |
 | **自动备份**（启动时距上次 ≥20 小时自动留快照，保留最近 14 份） | ✅ | [app.py](app.py) `backup_db()` / `auto_backup()`、`_prune_backups()`；`python app.py --no-backup` 可关 |
 | **手动备份** | ✅ | [mb.py](mb.py) `mb.py backup [--dir] [--keep]` |
 | **回收站**（删除进回收站，可恢复；只留最近 200 条） | ✅ | [app.py](app.py) `list_trash()` / `restore_trash()` / `purge_trash()`；`GET /api/trash`、`POST /api/trash/{id}/restore`、`DELETE /api/trash/{id}`、`POST /api/trash/purge`；网页「回收站」页 |
 | **从备份恢复**（`mb.py restore --from`，覆盖前自动留安全快照） | ✅ | [app.py](app.py) `restore_from_backup()`；[mb.py](mb.py) `restore` |
 | **手机端适配**（导航横滑、输入 16px 防缩放、弹窗全屏、操作区吸底） | ✅ | [index.html](static/index.html) 的 `@media(max-width:640px)` / `@media(max-width:380px)` |
-| **DSH 插件**（两条预设 + 6 个 `mb_*` 工具，模型直接调） | ✅ | [dsh-plugin/](dsh-plugin) `lib/tools.js`（工具注册）、`lib/api.js`（HTTP + 服务自动拉起） |
+| **DSH 插件**（两条预设 + 8 个 `mb_*` 工具，模型直接调） | ✅ | [dsh-plugin/](dsh-plugin) `lib/tools.js`（工具注册）、`lib/api.js`（HTTP + 服务自动拉起） |
 | AI 错因归类 / OCR 识题 | ⏳ 延后 | — |
 | 多端同步 / 账号 | ⏳ 延后 | — |
 | 微信 / 其他推送通道提醒 | ⏳ 延后 | — |
@@ -589,7 +592,7 @@ python mb.py mastery
 
 [SKILL.md](SKILL.md) 定义了完整流程与判分标准（什么算 hard、什么算 easy），把它复制到 `~/.dsh/skills/` 即可被会话自动发现——**我没有替你装**，安装命令在文件末尾。
 
-> v0.21 起还有更彻底的一条路：把错题本做成 DSH 插件（预设 + 6 个专用工具，模型直接调、不过 shell），见 **5.16** 节。
+> v0.21 起还有更彻底的一条路：把错题本做成 DSH 插件（预设 + 8 个专用工具，模型直接调、不过 shell），见 **5.16** 节。
 
 ## 5.7 到期提醒（v0.10）
 
@@ -1248,7 +1251,7 @@ Edge headless + CDP 数值断言（6 条种子题，桌面 1280px / 手机 375px
 | `mb_search` | `q` `subject` `knowledge` `tag` `status` `mistake_type` `paper_id` `due` `limit`(≤30) `offset` | `/api/mistakes` |
 | `mb_get` | `id`(必填) `with_reviews`(true) | `/api/mistakes/{id}` + `/reviews` |
 | `mb_add` | `question`(必填) + 10 个可选 | `POST /api/mistakes` |
-| `mb_review` | `id`(必填) `rating`(again/hard/good/easy) `step`(可选六档) | `POST /api/mistakes/{id}/review` |
+| `mb_review` | `id`(必填) `rating`(again/hard/good/easy) `step`(可选六档) `variant_question` `variant_answer` `variant_knowledge`(v0.36) | `POST /api/mistakes/{id}/review` |
 | `mb_stats` | `view`(overview/mastery/trend/arena) `days`(30) | 四个统计端点 |
 | `mb_weak_steps` | `days`(90) `limit`(5) | `/api/analytics` 的 `by_step` / `step_patterns` |
 | `mb_events` | `limit`(20) `kind` `id` | `/api/events` |
@@ -1261,7 +1264,7 @@ Edge headless + CDP 数值断言（6 条种子题，桌面 1280px / 手机 375px
 dsh-plugin/
 ├── package.json          # type: module，exports 出 . / ./tools / ./api / ./client
 ├── lib/api.js            # 零依赖 HTTP 客户端 + 服务自动拉起
-├── lib/tools.js          # 6 个工具注册（export name/inject/apply）
+├── lib/tools.js          # 8 个工具注册（export name/inject/apply）
 ├── skills/review/SKILL.md
 ├── skills/qa/SKILL.md
 └── cordis.patch.yml      # 参考副本（阶段二加了根行，见 5.17.4）
@@ -1317,7 +1320,7 @@ dsh-plugin/
 | 行 | 行名 | 导出 | 干什么 |
 |---|---|---|---|
 | 根行 `mistake-book-panel` | `dsh-mistake-book`（裸名） | `exports["."]` → `lib/plugin.js` | 只挂「建复习会话」路由；客户端半也随这一行被发现 |
-| 预设行 `mistake-book-tools` | `dsh-mistake-book/tools` | `exports["./tools"]` → `lib/tools.js` | 6 个 `mb_*` 工具，按预设作用域挂 |
+| 预设行 `mistake-book-tools` | `dsh-mistake-book/tools` | `exports["./tools"]` → `lib/tools.js` | 8 个 `mb_*` 工具，按预设作用域挂 |
 
 **为什么工具不写在根行**：根行是全局的，工具挂上去就会出现在所有会话里（写代码时模型也可能去调 `mb_add`）。工具面必须跟着预设走——这是阶段一定下的规矩，阶段二不改它。
 
@@ -2400,6 +2403,121 @@ for row in conn.execute("SELECT id, tags FROM mistakes WHERE tags LIKE ?", ("%" 
 
 `node --test` → **73 passed**；`python -m unittest discover -s tests` → **169 passed**。
 
+## 5.33 把变式题链路接给 agent（v0.36）
+
+### 5.33.1 问题：数据齐了，入口没接
+
+变式题不是新功能。v0.10 就有 `variants` 表、按 `times_used` 轮换的 `pick_variant()`、
+按缺口排优先级的 `variant_gaps()`、去重的 `_variant_fingerprint()`，网页端能增删练，
+CLI 也能 `mb.py review --variant-question`。**但 DSH 面板里的 8 个工具一条都用不上它。**
+
+| 断点 | 具体表现 |
+|---|---|
+| 写不进去 | `mb_review` 的请求体只有 `{rating, step}`；后端 `_extract_variant()` 认的三个 `variant_*` 字段，**没有任何 agent 侧代码会发** |
+| 看不见库存 | `brief()` 只吐 `#id [学科] 题干（状态）`，而 `LIST_COLUMNS` 早就算了 `variant_count`，白算 |
+| 回执丢结果 | `review_mistake()` 在 `app.py:1168` / `:1203` 都做了 `item["variant"] = variant`，插件回执把它丢了 |
+| 文档指错路 | `SKILL.md` 三处写 `python mb.py ...`，而面板里 agent 根本没有 shell |
+
+结论：**该优化的不是「再加 AI 能力」，是把已经存在的链路接上。** 自动出题（离线无模型）和
+相似度推荐（要引 `rapidfuzz`，破坏零依赖）都没做，理由见 6 节。
+
+### 5.33.2 A. `mb_review` 透传变式：判分 + 入库一次调用
+
+```js
+// dsh-plugin/lib/tools.js
+parameters.properties = { ..., variant_question: {type:'string'},
+  variant_answer: {type:'string'}, variant_knowledge: {type:'string'} }
+
+const vQuestion = String(args.variant_question || '').trim();
+if (!vQuestion && (vAnswer || vKnowledge)) {
+  throw new Error('variant_answer / variant_knowledge 必须和 variant_question 一起提交');
+}
+if (vQuestion) { body.variant_question = vQuestion; /* answer / knowledge 同理 */ }
+```
+
+**为什么只给答案不给题干要拒绝、而不是静默丢弃**：变式没有题干就是一条废数据，
+攒进库只会污染轮换。当场报错比事后从库里捞干净便宜。这条有专门的用例钉住
+（断言此时**一个请求都没发**）。
+
+### 5.33.3 B. 回执必须说清「新建」还是「命中去重」
+
+后端去重是按「去掉所有空白后的题干」比对的，所以同一道变式提交两次不会堆记录，
+但**会照常计一次练习**。这层语义 agent 看不见就会误判成「没存进去」：
+
+| 服务端回执 | 插件输出 |
+|---|---|
+| `variant.id` 存在、`duplicate: false` | `已存变式：#41` |
+| `variant.id` 存在、`duplicate: true` | `变式已在库中：#41（复用，已计一次练习）` |
+| 提交了题干但没有 `variant` | `变式未入库：服务端没有回执（可能已达单题变式上限，或服务端版本过旧）` |
+
+第三行是关键：**宁可报「未入库」也不要静默成功**——agent 会以为补过了，下次还列在缺口里。
+
+### 5.33.4 C. 列表行带变式库存
+
+```js
+function brief(item) {
+  const variants = typeof item.variant_count === 'number' ? item.variant_count : null;
+  const tail = variants === null ? '' : (variants ? ' · 变式 ' + variants : ' · 无变式');
+  return '#' + item.id + ' [' + (item.subject || '未分科') + '] '
+    + clip(item.question, 60) + '（' + statusLabel(item.status) + tail + '）';
+}
+```
+
+三种情况分开处理：
+
+- `variant_count > 0` → `· 变式 2`（有库存，可直接抽）
+- `variant_count === 0` → `· 无变式`（**这才是该补题的信号**）
+- 字段缺失 / 老服务 → 什么都不显示（不瞎猜成 0，否则会把「不知道」误报成「没有」）
+
+### 5.33.5 D. 顺手修掉的真 bug：`mb_add` 不填难度就录不进去
+
+```js
+// 改前
+difficulty: clampInt(args.difficulty, 0, 0, 5),   // 不传 → 0
+// 改后
+if (args.difficulty !== undefined && args.difficulty !== null && args.difficulty !== '') {
+  body.difficulty = clampInt(args.difficulty, 3, 1, 5);
+}
+```
+
+服务端 `normalize()`（`app.py:645`）只收 `1 <= difficulty <= 5`，所以 `difficulty: 0`
+必然 400「难度必须在 1-5 之间」。**不传就不发这个字段**，让服务端用默认值 3 ——
+工具层不该替用户编一个非法默认值。这个 bug 是写端到端冒烟时撞出来的，
+不是看代码看出来的（单元测试全程桩掉 fetch，看不到真服务端的校验）。
+
+### 5.33.6 三端入口对照
+
+| 场景 | 面板（agent） | 网页端 | CLI |
+|---|---|---|---|
+| 看谁该补变式 | `mb_due` 行里的 `无变式` | 卡片上的「变式 N」 | `mb.py list` / `mb.py variant gaps` |
+| 抽一道变式 | `mb_get` 后自行判断 | 弹窗变式区 | `mb.py variant next <id>` |
+| 判分同时补题 | `mb_review(id, rating, variant_question=...)` | 变式区「＋ 新增」 | `mb.py review <id> --rating X --variant-question ...` |
+
+### 5.33.7 验证
+
+| 用例 | 覆盖 |
+|---|---|
+| `mb_review 带变式：三个变式字段进请求体，回执报已存 #id` | `assert.deepEqual` 整个请求体，防多塞字段 |
+| `mb_review 变式命中去重时回执说复用` | `duplicate: true` 的文案 |
+| `mb_review 只给 variant_answer 不给题干时当场拒绝` | 抛错且**0 次请求** |
+| `mb_due / mb_search 的行里带变式库存` | 0 / 2 / 缺字段三种尾巴 |
+| `mb_add 不传难度时不发 difficulty 字段` | 修回归：以前塞 0 会被 400 拒 |
+| `mb_add 传难度时夹到 1-5` | `difficulty: 9` → `5` |
+
+`node --test` → **79 passed**；`python -m unittest discover -s tests` → **169 passed**。
+
+**端到端冒烟**（真服务 + 真工具，`app.py --db tests/_tmp/smoke36.db --port 8811`）：
+
+```
+ADD:    已录入 #1 · 高数 · 概念不清 · 下次复习 2026-10-23 19:44:58
+DUE:    1. #1 [高数] 求 lim(x→0) sin x / x（待复习 · 无变式）
+REVIEW: 已记录 #1 · hard · 断点 计算 | 已存变式：#1
+REVIEW2: 已记录 #1 · good | 变式已在库中：#1（复用，已计一次练习）
+SEARCH: 1. #1 [高数] 求 lim(x→0) sin x / x（复习中 · 变式 1）
+```
+
+补完变式后列表行从「无变式」变成「变式 1」，去重路径也走通了。
+
 ## 6. 关键设计决策
 
 - **零第三方依赖** —— 骨架阶段最大的成本是让人跑起来；`python app.py` 即可，无需虚拟环境与安装步骤。
@@ -2533,7 +2651,7 @@ for row in conn.execute("SELECT id, tags FROM mistakes WHERE tags LIKE ?", ("%" 
 - 四档评分是主观的：同样答对，学生自己点「困难」还是「记得」会显著改变后续间隔。
 - `SKILL.md` 需要手动复制到 `~/.dsh/skills/` 才会被 DSH 自动发现。
 - 掌握门禁依赖 FSRS 的稳定性估计，新题（复习记录少）几乎不可能过线——这是设计意图，但会让早期用户觉得"永远不达标"。
-- 变式题不会「凭空生成」：离线环境没有出题模型。变式由 agent 或用户出好，在复习回写时一并提交（`--variant-question`）就自动入库；「变式缺口」接口只负责排优先级，不负责生成。
+- 变式题不会「凭空生成」：离线环境没有出题模型。变式由 agent 或用户出好，在复习回写时一并提交（面板 `mb_review` 的 `variant_question`，或 CLI `--variant-question`）就自动入库；「变式缺口」接口只负责排优先级，不负责生成。
 - 画像只按 `knowledge` 聚合，知识点写法不一致时会被拆成两个点。
 - 学习页只做展示与跳转，不能在页面上直接调门禁阈值（阈值是 [app.py](app.py) 里的常量 `MASTERY_*`）。
 - 变式题管理藏在错题编辑弹窗里，没有独立的「变式题库」总览页。
@@ -2570,7 +2688,7 @@ for row in conn.execute("SELECT id, tags FROM mistakes WHERE tags LIKE ?", ("%" 
 6. **AI 错因归类**：录入时用模型从题干与我的答案推断 `mistake_type` 与 `knowledge`，仅作建议。
 7. **FSRS 参数训练**：复习记录攒够（1000 条以上）后离线拟合 21 个参数，存到 `data/fsrs_params.json` 热加载。
 8. **AI 闭环增强（v0.22 已做基础版）**：`review --step` 记结构化断点（六档枚举），`analytics` 出 `by_step` 与 `step_patterns`（知识点 × 步 ≥2 次才算模式），`mb_weak_steps` 把结论交给模型。还没做的：断点与 `mistake_type` 的交叉归因、按断点自动调整判分口径。
-9. **变式题自动入库（v0.10 已做）**：复习回写时带 `--variant-question` 就入库并去重。还没做的：按 `times_used` 淘汰长期不用的、变式正确率单独统计、由模型批量出题（需外部依赖）。
+9. **变式题自动入库（v0.10 已做）**：复习回写时带 `--variant-question` 就入库并去重。v0.36 把这条链路接到了 DSH 面板（`mb_review` 的 `variant_*` 三参数 + 列表行显式标「无变式」）。还没做的：按 `times_used` 淘汰长期不用的、变式正确率单独统计、由模型批量出题（需外部依赖）。
 10. **会话事件流（NDJSON，v0.22 已做基础版）**：建题 / 评分 / 斩题 / 恢复写 `events.ndjson`（跟 `--db` 同目录），`mb.py stream --ndjson` 一行一条，`GET /api/events` + `mb_events` 读。还没做的：把事件流回灌成会话上下文、按事件触发提醒。
 11. **掌握门禁可配置**：把三条阈值挪到 `meta` 可读的配置里，让用户自己调松紧。
 12. **备份增强（v0.11 已做基础版）**：启动时自动快照 + `mb.py backup` + 14 份轮转。还没做的：备份到网盘/S3、加密、`mb.py restore` 一键回滚（现在要手动复制文件并删 WAL）、备份完整性自检。
