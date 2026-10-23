@@ -9,7 +9,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类 |
+| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类。v0.43 起 `sources` 只含**库里真正用过的值**（按题量降序），另给 `source_facets`（`[{name, count, system}]`，含 0 题的内置值，供词表整理面板用）；`subject_facets` / `tag_facets` / `knowledge` 同为 facets 形态 |
 | GET | `/api/stats` | 总数、各状态数、待复习数、错因分布、复习正确率 |
 | GET | `/api/mistakes` | 列表；参数 `q, scope, subject, knowledge, tag, status, mistake_type, source, range, due, suspended, page, page_size` |
 | POST | `/api/mistakes` | 新增，返回 201；3 秒内重复题目返回 200 + `duplicate: true` |
@@ -52,6 +52,8 @@
 | GET | `/api/knowledge/aliases` | 别名列表 |
 | POST | `/api/knowledge/aliases` | 登记别名，body `{"alias", "canonical"}`；成环或自我指向返回 400 |
 | DELETE | `/api/knowledge/aliases/{alias}` | 删除别名（alias 需 URL 编码） |
+| POST | `/api/meta/merge` | 合并 / 删除扁平值；body `{"kind": "subject"\|"tag"\|"source", "sources": ["旧名"], "target": "新名"}`，`target` 留空 = 清空该值；返回 `{kind, target, sources, moved, ids, cleared}`（`moved` 是题数，`cleared` 是布尔） |
+| POST | `/api/knowledge/merge` | 合并 / 清空知识点；body `{"sources": [...], "target": "规范名"}`，`target` 留空 = 清空；合并时自动登记别名，返回额外带 `aliases_added` |
 | GET | `/api/variants/gaps?limit=&subject=` | 最该补变式的题：变式数升序、错次数降序；每条带 `variant_count/wrong/right/hint` |
 | GET | `/api/export.csv` | 按当前筛选导出 CSV（流式，边查边写） |
 | GET | `/api/export.json` | 全量备份（复习历史、变式、别名、试卷、题目图片；version 5；图片只给 `image_url` 不给 base64；流式） |

@@ -731,6 +731,10 @@ window.__ModuleLoader__.load({
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
       const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
 
+      // v0.43：来源写了个跟已有值只差一个字的，就提示改用已有的（防再长脏值）
+      const nearSource = nearName(form.source, ((meta && meta.source_facets) || [])
+        .filter((facet) => facet.count > 0).map((facet) => facet.name));
+
       const MAX_PER_FIELD = 4;
       const MAX_TOTAL = 6;
       const fieldOf = (img) => (img && img.field) || 'question';
@@ -796,8 +800,23 @@ window.__ModuleLoader__.load({
         onSave(body);
       };
 
+      // v0.43：datalist 的选项既能是字符串，也能是 { value, label } ——
+      // 后者让下拉里显示「期中 · 3 题」，但填进输入框的仍然只有「期中」。
       const choices = (id, values) => h('datalist', { id },
-        (values || []).map((value) => h('option', { key: value, value })));
+        (values || []).map((value) => (value && typeof value === 'object'
+          ? h('option', { key: value.value, value: value.value, label: value.label })
+          : h('option', { key: value, value }))));
+      // 来源的候选只取库里真用过的值（count > 0），按题量降序 —— 这是「活词表」：
+      // 没人用的值自动从下拉里消失，但数据一条不删。
+      const sourceOptions = (m) => (((m && m.source_facets) || [])
+        .filter((f) => f && f.count > 0)
+        .map((f) => ({ value: f.name, label: f.name + ' · ' + f.count + ' 题' })));
+      // 0 题的内置值不占下拉，退到 placeholder 当示例 —— 新用户第一次录入仍有提示。
+      const sourcePlaceholder = (m) => {
+        const unused = ((m && m.source_facets) || [])
+          .filter((f) => f && !f.count).map((f) => f.name);
+        return unused.length ? '如：' + unused.slice(0, 3).join(' / ') : '如：期中 / 月考';
+      };
 
       const blockProps = (field) => ({
         onFocus: () => { activeField.current = field; },
@@ -870,8 +889,16 @@ window.__ModuleLoader__.load({
                   onChange: setValue('mistake_type'),
                 })),
               h('div.mb-field', null, h('span', null, '来源'),
-                h('input', { value: form.source, onChange: set('source'), list: 'mb-dl-source' }),
-                choices('mb-dl-source', meta && meta.sources)),
+                h('input', {
+                  value: form.source, onChange: set('source'), list: 'mb-dl-source',
+                  placeholder: sourcePlaceholder(meta),
+                }),
+                choices('mb-dl-source', sourceOptions(meta)),
+                nearSource ? h('div.mb-note', null,
+                  '已有「' + nearSource + '」，用它更好：',
+                  h('button.mb-btn.mini', {
+                    type: 'button', onClick: () => setValue('source')(nearSource),
+                  }, '用「' + clip(nearSource, 10) + '」')) : null),
               h('div.mb-field', null, h('span', null, '标签（逗号分隔）'),
                 h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' })),
               h('div.mb-field', null, h('span', null, '难度'),
@@ -1278,6 +1305,41 @@ window.__ModuleLoader__.load({
     function facetLabel(facet) {
       const pad = new Array(Math.max(1, facet.depth || 1)).join('　');
       return pad + facet.name + (facet.count ? '（' + facet.count + '）' : '');
+    }
+
+    // v0.43：录入时挡住「新造同义值」—— 跟已有名字只差一两个字就提示改用已有的。
+    // 只比较长度 ≤12 的短名，长文本（比如一整句错因描述）不参与，免得白算。
+    function editDistance(a, b, limit) {
+      const left = String(a || '');
+      const right = String(b || '');
+      if (left === right) return 0;
+      const cap = limit || 2;
+      if (Math.abs(left.length - right.length) > cap) return cap;
+      let prev = [];
+      for (let j = 0; j <= right.length; j += 1) prev.push(j);
+      for (let i = 1; i <= left.length; i += 1) {
+        const cur = [i];
+        for (let j = 1; j <= right.length; j += 1) {
+          const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+          cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost));
+        }
+        prev = cur;
+      }
+      return prev[right.length];
+    }
+
+    // 找出跟 value 只差一个字的已有名字；没有就返回空串。
+    function nearName(value, names) {
+      const text = String(value || '').trim();
+      if (!text || text.length > 12) return '';
+      let best = '';
+      let bestScore = 99;
+      (names || []).forEach((name) => {
+        if (!name || name === text) return;
+        const score = editDistance(text, name, 2);
+        if (score < bestScore) { bestScore = score; best = name; }
+      });
+      return bestScore <= 1 ? best : '';
     }
 
     // 学习/计划/分析页的「去练」把筛选条件暂存在这里，切到错题页时 ListTab 挂载即取走
@@ -1730,6 +1792,137 @@ window.__ModuleLoader__.load({
               report && report.created ? '完成' : '关闭'))));
     }
 
+    /* ── 词表整理（v0.43）：学科 / 知识点 / 标签 / 来源 的合并与清理 ───── */
+
+    // 这四个字段都是自由文本，录久了必然长出「期中 / 期中考 / 期中考试」这种同义值。
+    // 这里给一个集中治理的入口：按题量排序、0 题的标「未使用」、勾选多项并到一个
+    // 规范名，或直接删掉。合并优先于删除 —— 删了下次录入还会再脏。
+    function VocabPanel() {
+      const KINDS = [
+        { key: 'source', label: '来源' },
+        { key: 'subject', label: '学科' },
+        { key: 'knowledge', label: '知识点' },
+        { key: 'tag', label: '标签' },
+      ];
+      const [kind, setKind] = useState('source');
+      const [meta, setMeta] = useState(null);
+      const [picked, setPicked] = useState([]);
+      const [target, setTarget] = useState('');
+      const [editing, setEditing] = useState('');
+      const [editValue, setEditValue] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [note, setNote] = useState('');
+      const [error, setError] = useState('');
+      const [version, setVersion] = useState(0);
+
+      useEffect(() => {
+        let cancelled = false;
+        data('/api/meta')
+          .then((value) => { if (!cancelled) setMeta(value); })
+          .catch((failure) => { if (!cancelled) setError(errText(failure)); });
+        return () => { cancelled = true; };
+      }, [version]);
+
+      // 知识点用 facets 里的 path（带层级缩进）；其余三档用 *_facets（带 system 标记）。
+      const rows = (() => {
+        if (!meta) return [];
+        if (kind === 'knowledge') {
+          // knowledgeFacets 兼容老服务的裸字符串数组，别直接读 meta.knowledge
+          return knowledgeFacets(meta).map((facet) => ({
+            name: facet.path, count: facet.count || 0, depth: facet.depth || 1,
+          }));
+        }
+        return (meta[kind + '_facets'] || []).map((facet) => ({
+          name: facet.name, count: facet.count || 0, system: !!facet.system,
+        }));
+      })();
+
+      const toggle = (name) => setPicked((old) => (old.indexOf(name) >= 0
+        ? old.filter((item) => item !== name)
+        : old.concat([name])));
+
+      const apply = async (sources, to) => {
+        if (!sources.length || busy) return;
+        setBusy(true); setError(''); setNote('');
+        try {
+          const result = kind === 'knowledge'
+            ? await data('/api/knowledge/merge', { method: 'POST',
+                body: JSON.stringify({ sources, target: to }) })
+            : await data('/api/meta/merge', { method: 'POST',
+                body: JSON.stringify({ kind, sources, target: to }) });
+          const moved = (result && result.moved) || 0;
+          setPicked([]); setTarget(''); setEditing('');
+          setNote(to
+            ? '已把 ' + sources.length + ' 项并到「' + to + '」，影响 ' + moved + ' 道题'
+            : '已清空 ' + sources.length + ' 项，影响 ' + moved + ' 道题');
+          setVersion(version + 1);
+        } catch (failure) { setError(errText(failure)); }
+        finally { setBusy(false); }
+      };
+
+      if (!meta) return h('div.mb-empty.compact', null, error || '加载中…');
+
+      return h('div.mb-card', null,
+        h('div.mb-cardhead', null, '词表整理 · 勾选多项可合并或删除'),
+        h('div.mb-tabs', null, KINDS.map((pair) => h('button', {
+          key: pair.key, type: 'button', className: kind === pair.key ? 'on' : '',
+          onClick: () => { setKind(pair.key); setPicked([]); setEditing(''); setNote(''); },
+        }, pair.label + '（' + ((pair.key === 'knowledge'
+          ? knowledgeFacets(meta).length
+          : (meta[pair.key + '_facets'] || []).length)) + '）'))),
+        h('div.mb-panel', null,
+          rows.length
+            ? rows.map((row) => h('div.mb-hrow', { key: row.name },
+                h('input', {
+                  type: 'checkbox', checked: picked.indexOf(row.name) >= 0,
+                  onChange: () => toggle(row.name),
+                }),
+                h('span', {
+                  style: { flex: '1 1 auto', paddingLeft: ((row.depth || 1) - 1) * 10 + 'px' },
+                }, row.name),
+                row.count
+                  ? h('span.mb-badge', null, row.count + ' 题')
+                  : h('span.mb-badge', null, '未使用'),
+                row.system ? h('span.mb-note', null, '内置') : null,
+                editing === row.name
+                  ? [
+                      h('input.mb-input', {
+                        key: 'edit', value: editValue,
+                        onChange: (e) => setEditValue(e.target.value),
+                      }),
+                      h('button.mb-btn.mini', {
+                        key: 'ok', type: 'button', disabled: busy,
+                        onClick: () => void apply([row.name], editValue.trim()),
+                      }, '确定'),
+                      h('button.mb-btn.mini', {
+                        key: 'no', type: 'button', onClick: () => setEditing(''),
+                      }, '取消'),
+                    ]
+                  : [
+                      h('button.mb-btn.mini', {
+                        key: 'rename', type: 'button',
+                        onClick: () => { setEditing(row.name); setEditValue(row.name); },
+                      }, '改名'),
+                      h('button.mb-btn.mini', {
+                        key: 'drop', type: 'button', disabled: busy,
+                        onClick: () => void apply([row.name], ''),
+                      }, '删'),
+                    ]))
+            : h('div.mb-empty.compact', null, '这一档还没有值。')),
+        h('div.mb-row2', { style: { marginTop: '8px' } },
+          h('input.mb-input', {
+            placeholder: '合并到（留空 = 清空勾选项）', value: target,
+            onChange: (e) => setTarget(e.target.value),
+          }),
+          h('button.mb-btn', {
+            type: 'button', disabled: busy || !picked.length,
+            onClick: () => void apply(picked, target.trim()),
+          }, target.trim()
+            ? '合并 ' + picked.length + ' 项到「' + clip(target.trim(), 10) + '」'
+            : '清空勾选的 ' + picked.length + ' 项')),
+        note ? h('div.mb-note', { style: { marginTop: '6px' } }, note) : null,
+        error ? h('div.mb-note.bad', { style: { marginTop: '6px' } }, error) : null);
+    }
     /* ── 学习页：知识点画像 + 树 + 别名 + 变式缺口 ───────────────────── */
 
     function StudyView(props) {
@@ -1880,7 +2073,11 @@ window.__ModuleLoader__.load({
                 },
                   h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(row, 70) }),
                   h('span.mb-htime', null, (row.variant_count ? '变式 ' + row.variant_count + ' 条' : '无变式') + ' · 错 ' + row.wrong + ' 次'))))
-              : h('div.mb-empty.compact', null, '暂时没有缺口。'))));
+              : h('div.mb-empty.compact', null, '暂时没有缺口。'))),
+
+        h('details.mb-fold', null,
+          h('summary', null, '词表整理：来源 · 学科 · 知识点 · 标签'),
+          h('div.mb-foldbody', null, h(VocabPanel, null))));
     }
 
         /* ── 计划页 ───────────────────────────────────────────────────────── */
@@ -2533,7 +2730,7 @@ window.__ModuleLoader__.load({
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog,
-        Dropdown, isLightColor, MathText,
+        Dropdown, isLightColor, MathText, VocabPanel,
         setPendingListFilter: (patch) => { pendingListFilter = patch; },
       },
     };

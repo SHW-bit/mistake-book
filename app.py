@@ -57,6 +57,8 @@ MISTAKE_TYPES = ("概念不清", "计算失误", "审题错误", "方法不会",
 # 结构化断点（v0.22）：这次错在解题流程的哪一步。用枚举而不是自由文本，
 # 否则「计算错了」「算错」「计算失误」会碎成三堆，易错模式就聚合不出来了。
 REVIEW_STEPS = ("审题", "建模", "计算", "检验", "表达", "记忆")
+# v0.43：这 8 个不再是「下拉候选」，只是内置示例 —— 候选改由库里的真实值生成
+# （见 _field_facets 的 source 分支），0 题的内置值不再占位。
 SOURCE_HINTS = ("作业", "练习册", "周测", "月考", "期中", "期末", "模拟考", "其他")
 # 复习评分 -> FSRS rating（1=again 2=hard 3=good 4=easy）
 RESULT_RATINGS = {"again": 1, "hard": 2, "good": 3, "easy": 4}
@@ -1530,9 +1532,9 @@ def delete_alias(conn: sqlite3.Connection, alias: str) -> None:
 
 
 def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
-    """学科 / 标签的取值与计数（下拉、合并面板都要用）。
+    """学科 / 标签 / 来源的取值与计数（下拉、合并面板都要用）。
 
-    kind 会参与分支判断，只认 subject / tag 两档；其余直接报错，
+    kind 会参与分支判断，只认 subject / tag / source 三档；其余直接报错，
     免得调用方传个拼错的名字进来静默返回空列表。
     """
     if kind == "subject":
@@ -1542,6 +1544,28 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
             "SELECT subject AS name, COUNT(*) AS n FROM mistakes "
             "WHERE subject <> '' GROUP BY subject ORDER BY n DESC, subject").fetchall()
         return [{"name": r[0], "count": r[1]} for r in rows]
+    if kind == "source":
+        # v0.43：来源走「活词表」。用过的值按题量降序在前；内置值即使 0 题也保留，
+        # 但带 system=True 且 count=0 —— 前端只把 count>0 的放进输入候选，
+        # 管理面板才把 0 题的列进「未使用」分组。数据一个都不删。
+        counts, last_used = {}, {}
+        for raw, total, stamp in conn.execute(
+                "SELECT source, COUNT(*), MAX(updated_at) FROM mistakes "
+                "WHERE source <> '' GROUP BY source"):
+            name = (raw or "").strip()
+            if name:
+                counts[name] = counts.get(name, 0) + total
+                last_used[name] = stamp or ""
+        # 排序：题量多的在前 → 最近用过的在前 → 名字（稳定排序，逐级细化）
+        names = list(counts)
+        names.sort()
+        names.sort(key=lambda x: last_used.get(x) or "", reverse=True)
+        names.sort(key=lambda x: -counts[x])
+        used = [{"name": k, "count": counts[k], "system": k in SOURCE_HINTS}
+                for k in names]
+        unused = [{"name": h, "count": 0, "system": True}
+                  for h in SOURCE_HINTS if h not in counts]
+        return used + unused
     if kind == "tag":
         counts = {}
         for (raw,) in conn.execute("SELECT tags FROM mistakes WHERE tags <> ''"):
@@ -1551,19 +1575,19 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
                     counts[t] = counts.get(t, 0) + 1
         return [{"name": k, "count": counts[k]}
                 for k in sorted(counts, key=lambda x: (-counts[x], x))]
-    raise ValidationError("不支持的合并类型：%s（只能是 subject / tag）" % kind)
+    raise ValidationError("不支持的合并类型：%s（只能是 subject / tag / source）" % kind)
 
 
 def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dict:
-    """把若干个学科 / 标签并成一个规范名。
+    """把若干个学科 / 标签 / 来源并成一个规范名。
 
     为什么不复用 merge_knowledge：知识点是 "/" 分层路径，合并时要把子树后缀
     拼到新名字后面；学科和标签是扁平值，整列改写即可。两者共用的只有
     「校验 → 计数 → 写事件」这三步，硬塞进一个函数只会到处 if。
     """
     kind = (kind or "").strip().lower()
-    if kind not in ("subject", "tag"):
-        raise ValidationError("不支持的合并类型：%s（只能是 subject / tag）" % kind)
+    if kind not in ("subject", "tag", "source"):
+        raise ValidationError("不支持的合并类型：%s（只能是 subject / tag / source）" % kind)
     if not isinstance(sources, list) or not sources:
         raise ValidationError("sources 必须是非空的名称数组")
     # target 为空 = 「删除」：把值从所有题上摘掉（学科变未分类、标签消失），
@@ -1585,12 +1609,16 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
     moved = []
     for name in clean:
         ids = []
-        if kind == "subject":
+        if kind in ("subject", "source"):
+            # source 是扁平值，和 subject 走同一条路：整列改写即可。
+            # 列名只从这两档白名单里取，不拼用户输入。
+            column = "subject" if kind == "subject" else "source"
             ids = [r[0] for r in conn.execute(
-                "SELECT id FROM mistakes WHERE subject = ?", (name,)).fetchall()]
+                "SELECT id FROM mistakes WHERE " + column + " = ?", (name,)).fetchall()]
             if ids:
-                conn.execute("UPDATE mistakes SET subject = ?, updated_at = ? WHERE subject = ?",
-                             (target, stamp, name))
+                conn.execute(
+                    "UPDATE mistakes SET " + column + " = ?, updated_at = ? WHERE " + column + " = ?",
+                    (target, stamp, name))
         else:
             for row in conn.execute("SELECT id, tags FROM mistakes WHERE tags LIKE ?",
                                     ("%" + name + "%",)).fetchall():
@@ -2625,8 +2653,10 @@ def meta(conn: sqlite3.Connection) -> dict:
     subjects = [f["name"] for f in subject_facets]
     tags = [f["name"] for f in tag_facets]
     facets = knowledge_facets(conn)
-    sources = [r[0] for r in conn.execute(
-        "SELECT DISTINCT source FROM mistakes WHERE source <> '' ORDER BY source")]
+    # v0.43：来源改成活词表 —— source_facets 带 count 与 system 标记；
+    # sources 只回「用过的值」，0 题的内置候选不再占位（但仍在 facets 里，供管理面板用）。
+    source_facets = _field_facets(conn, "source")
+    sources = [f["name"] for f in source_facets if f["count"] > 0]
     return {"subjects": subjects, "tags": tags,
             "subject_facets": subject_facets, "tag_facets": tag_facets,
             # v0.34：knowledge 从「字符串数组」升级成带 count/depth/parent 的 facets；
@@ -2637,7 +2667,8 @@ def meta(conn: sqlite3.Connection) -> dict:
             "steps": list(REVIEW_STEPS),
             "statuses": [{"value": k, "label": v} for k, v in STATUS_LABELS.items()],
             "mistake_types": list(MISTAKE_TYPES),
-            "sources": sorted(set(sources) | set(SOURCE_HINTS)),
+            "source_facets": source_facets,
+            "sources": sources,
             "settings": get_settings(conn),
             "setting_labels": SETTING_LABELS,
             "papers": list_papers(conn)["papers"],

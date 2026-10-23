@@ -239,6 +239,21 @@
 
 **看过但没做的**：拍照 OCR / 视觉大模型识题（`tjunsh/ai-wrong-notebook`、`ausyeah/mistake-recorder`、`Nemoyuzx/cuoti-auto` 等，全部依赖外部服务或重模型，与零依赖冲突）；PDF 切题与组卷打印（`Jasmine-Coder-Dev/error-notebook`、`MiaoJiyu/ink-error-book`，打印功能用户已要求暂缓）；AI 记忆演化（[Bairong-Xdynamics/MistakeNotebookLearning](https://github.com/Bairong-Xdynamics/MistakeNotebookLearning)，ACL 2026 的 training-free 方案，需要 LLM，属外部依赖）；多格式导出 DOCX/PDF（同上，需要第三方库）。
 
+### 活词表：候选来自数据，不来自常量（v0.43）
+
+**问题**：`SOURCE_HINTS` 这 8 个内置来源每次都被 `meta()` 并回候选，删不掉；库里还有 `4` 这类脏值；四个自由文本字段（学科 / 知识点 / 标签 / 来源）在面板里全是裸 datalist，能写不能管。
+
+**决定**：把「候选」与「示例」分开。
+
+- 候选 = `_field_facets()` 的产物，只含 `count > 0` 的值，按「题量 → 最近用过 → 名字」三次稳定排序；
+- 示例 = 0 题的内置值，只出现在 placeholder 与管理面板的「未使用」分组里；
+- 治理 = `merge_meta(kind=source)` 与 `merge_knowledge()`，合并优先于删除，`target` 留空才是清空；
+- 引导 = 录入时编辑距离 ≤1 的近似值给一句「已有『X』」，**只提示不自动改**（自动改会吃掉「期中考（区统考）」这类真·不同值）。
+
+**理由**：参考 Stashmark（孤儿标签自动从建议消失 + Tags 仪表盘）与 CityU 图书馆的「受控词表 vs 自由文本」结论 —— 成熟做法是混合：自由输入 + 输入时引导 + 事后治理。反例是本机 `_wn_study/` 的 wrong-notebook：它的知识点有完整词表体系，但 `ErrorItem.source` 只是 `String?`、全项目 0 处引用 —— 说明「来源」这类低频字段确实容易被漏掉。
+
+**代价**：`meta()` 多了一次 `GROUP BY` 查询（8 道题的库上无感，5 万题规模下与既有 facets 同量级）。
+
 ### 组卷打印的设计取舍（v0.8）
 
 | 决策 | 选择 | 理由 |

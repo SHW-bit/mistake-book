@@ -342,7 +342,9 @@ python mb.py --read-only list           # 只读模式，拒绝写操作
 # mb_paper(count=10, order="weak", mode="question")        # 组卷，回执直接给 /print 链接
 # mb_report(days=7)                                        # 学习周报（新增/复习/正确率/门禁/计划）
 # mb_suggest(kind="knowledge")                             # 查脏值与近重复（只读，不改库）
+# mb_suggest(kind="source")                                # 来源里的「4」「期中考」也会被揪出来
 # mb_merge(kind="knowledge", sources=["111"], target="")   # 执行合并；target 留空 = 删除该值
+# mb_merge(kind="source", sources=["4"], target="作业")     # 来源同样能合并 / 清空
 ```
 
 默认输出 JSON（agent 直接解析），加 `--text` 输出人读格式。

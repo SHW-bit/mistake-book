@@ -543,6 +543,33 @@ test('mb_merge：知识点走 /api/knowledge/merge，学科走 /api/meta/merge',
     assert.deepEqual(subBody, { kind: 'subject', sources: ['高等数学'], target: '高数' });
     assert.match(sub.text, /改动题目 2 道/);
     assert.match(kp.text, /题号：#1 #2 #3/);
+
+    // v0.43：来源也是扁平值，走 /api/meta/merge，kind=source
+    const src = await map.mb_merge.execute({ kind: 'source', sources: ['4'], target: '作业' });
+    const srcBody = JSON.parse(stub.calls.filter((item) => item.url.includes('/api/meta/merge')).pop().init.body);
+    assert.deepEqual(srcBody, { kind: 'source', sources: ['4'], target: '作业' });
+    assert.match(src.text, /改动题目 2 道/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_suggest：来源里的纯数字也会被揪出来（v0.43）', async () => {
+  const stub = stubFetch({
+    '/api/meta': {
+      knowledge: [], subject_facets: [], tag_facets: [],
+      source_facets: [{ name: '4', count: 1, system: false },
+        { name: '期中考', count: 2, system: false },
+        { name: '期中', count: 3, system: true }],
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_suggest.execute({ kind: 'source' });
+    assert.match(value.text, /「来源」体检/);
+    assert.match(value.text, /「4」1 道 → 建议清空/);
+    assert.match(value.text, /mb_merge kind=source/);
+    assert.equal(stub.calls.filter((item) => item.init && item.init.method === 'POST').length, 0);
   } finally {
     stub.restore();
   }

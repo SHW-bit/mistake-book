@@ -6,7 +6,7 @@
 
 | 东西 | 内容 |
 | --- | --- |
-| 工具（13 个） | `mb_due` 取到期 / `mb_search` 检索 / `mb_get` 读题（默认不给答案） / `mb_add` 录入 / `mb_review` 判分回写 FSRS / `mb_stats` 统计 / `mb_events` 断点 / `mb_weak_steps` 错步 / `mb_batch` 批量导入 / `mb_paper` 组卷 / `mb_report` 周报 / `mb_suggest` 查脏值 / `mb_merge` 合并 |
+| 工具（13 个） | `mb_due` 取到期 / `mb_search` 检索 / `mb_get` 读题（默认不给答案） / `mb_add` 录入 / `mb_review` 判分回写 FSRS / `mb_stats` 统计 / `mb_events` 断点 / `mb_weak_steps` 错步 / `mb_batch` 批量导入 / `mb_paper` 组卷 / `mb_report` 周报 / `mb_suggest` 查脏值 / `mb_merge` 合并（知识点 / 学科 / 标签 / 来源四类） |
 | 预设（2 条） | 「错题复习」走复习闭环；「错题答疑」就着一道题就地答疑 |
 | 面板 | 侧栏「错题本」，六页签：列表 / 学习 / 计划 / 分析 / 打印 / 设置 |
 

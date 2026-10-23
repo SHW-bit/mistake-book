@@ -691,6 +691,7 @@ function facetsOf(meta, kind) {
     knowledge: meta && meta.knowledge,
     subject: meta && meta.subject_facets,
     tag: meta && meta.tag_facets,
+    source: meta && meta.source_facets,
   };
   const list = table[kind];
   if (!Array.isArray(list)) return [];
@@ -925,11 +926,11 @@ function reportTool(config) {
 function suggestTool(config) {
   return {
     name: 'mb_suggest',
-    description: '查知识点 / 学科 / 标签里的近重复与无效值，只给建议、不改库。典型脏数据：111、2、单字、全半角或空格写法不一致（函数 单调性 vs 函数/单调性）。拿到建议后用 mb_merge 执行合并。',
+    description: '查知识点 / 学科 / 标签 / 来源里的近重复与无效值，只给建议、不改库。典型脏数据：111、2、单字、全半角或空格写法不一致（函数 单调性 vs 函数/单调性）、来源写成「4」或「期中考」。拿到建议后用 mb_merge 执行合并。',
     parameters: {
       type: 'object',
       properties: {
-        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag' },
+        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag / source' },
         limit: { type: 'number', description: '最多给多少组建议，默认 20' },
       },
     },
@@ -940,7 +941,7 @@ function suggestTool(config) {
       const limit = clampInt(args.limit, 20, 1, 100);
       const meta = await call(s, '/api/meta');
       const list = facetsOf(meta, kind);
-      const label = { knowledge: '知识点', subject: '学科', tag: '标签' }[kind] || kind;
+      const label = { knowledge: '知识点', subject: '学科', tag: '标签', source: '来源' }[kind] || kind;
       if (!list.length) return { text: '库里还没有任何' + label + '。' };
       const junk = list.filter((item) => junkName(item.name));
       const pairs = [];
@@ -980,11 +981,11 @@ function suggestTool(config) {
 function mergeTool(config) {
   return {
     name: 'mb_merge',
-    description: '把若干个知识点 / 学科 / 标签并成一个规范名（就是「合并」）。kind=knowledge 走知识点合并（会顺带登记别名，以后写错写法自动归到规范名）；kind=subject 或 tag 走扁平值合并。target 留空 = 删除这些值（知识点清空、学科变未分类、标签消失）。不可逆，执行前先 mb_suggest 看建议。',
+    description: '把若干个知识点 / 学科 / 标签 / 来源并成一个规范名（就是「合并」）。kind=knowledge 走知识点合并（会顺带登记别名，以后写错写法自动归到规范名）；kind=subject / tag / source 走扁平值合并。target 留空 = 删除这些值（知识点清空、学科变未分类、标签消失、来源清空）。不可逆，执行前先 mb_suggest 看建议。',
     parameters: {
       type: 'object',
       properties: {
-        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag' },
+        kind: { type: 'string', description: 'knowledge（默认）/ subject / tag / source' },
         sources: { type: 'array', description: '要并掉的旧名数组，例如 ["111","函数 单调性"]', items: { type: 'string' } },
         target: { type: 'string', description: '合并到的规范名；留空表示删除这些值' },
       },
@@ -998,8 +999,8 @@ function mergeTool(config) {
         ? args.sources.map((item) => String(item || '').trim()).filter(Boolean) : [];
       const target = typeof args.target === 'string' ? args.target.trim() : '';
       if (!sources.length) throw new Error('sources 必须是非空的名称数组');
-      if (kind !== 'knowledge' && kind !== 'subject' && kind !== 'tag') {
-        throw new Error('kind 只能是 knowledge / subject / tag');
+      if (kind !== 'knowledge' && kind !== 'subject' && kind !== 'tag' && kind !== 'source') {
+        throw new Error('kind 只能是 knowledge / subject / tag / source');
       }
       const path = kind === 'knowledge' ? '/api/knowledge/merge' : '/api/meta/merge';
       const body = kind === 'knowledge'
