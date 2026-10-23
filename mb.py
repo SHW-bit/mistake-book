@@ -128,6 +128,8 @@ def cmd_import(args, conn) -> dict:
 
 def cmd_review(args, conn) -> dict:
     body = {"result": args.rating}
+    if args.step:
+        body["step"] = args.step
     if args.variant_question:
         body["variant_question"] = args.variant_question
         body["variant_answer"] = args.variant_answer
@@ -196,6 +198,18 @@ def cmd_variant(args, conn) -> dict:
     if args.vsub == "use":
         return app.use_variant(conn, args.vid)
     return app.list_variants(conn, args.id)
+
+
+def cmd_stream(args, conn) -> dict:
+    """回放事件流：这次学习里谁在什么时候做了什么。"""
+    data = app.read_events(conn, args.limit, args.kind, args.id)
+    if args.ndjson:
+        # 原样吐 NDJSON，方便 agent 直接逐行消费
+        for ev in data["items"]:
+            print(json.dumps(ev, ensure_ascii=False))
+        return None
+    data["hint"] = "kind 可选 created/reviewed/mastered/suspended/resumed；加 --ndjson 逐行输出"
+    return data
 
 
 def cmd_stats(args, conn) -> dict:
@@ -292,6 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("--rating", default="good",
                    choices=["again", "hard", "good", "easy", "mastered", "1", "2", "3", "4"])
+    p.add_argument("--step", default="", choices=[""] + list(app.REVIEW_STEPS),
+                   help="这次错在解题流程的哪一步（可选）")
     p.add_argument("--variant-question", dest="variant_question", default="",
                    help="顺手把这次用的变式题存进题库（自动去重）")
     p.add_argument("--variant-answer", dest="variant_answer", default="")
@@ -376,6 +392,14 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_alias)
     p.set_defaults(func=cmd_alias, asub="list")
 
+    p = sub.add_parser("stream", help="回放学习事件流（NDJSON 文件）")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--kind", default="",
+                   help="只看某类：created / reviewed / mastered / suspended / resumed")
+    p.add_argument("--id", type=int, default=0, help="只看某道错题")
+    p.add_argument("--ndjson", action="store_true", help="逐行输出原始 NDJSON")
+    p.set_defaults(func=cmd_stream)
+
     p = sub.add_parser("stats", help="统计")
     p.set_defaults(func=cmd_stats)
 
@@ -441,7 +465,8 @@ def main(argv=None) -> int:
         return 1
     finally:
         conn.close()
-    _dump(data, args.text)
+    if data is not None:   # stream --ndjson 自己打印，不套 JSON 信封
+        _dump(data, args.text)
     return 0
 
 

@@ -15,6 +15,10 @@
 //   GET  /api/mistakes?due=1&page_size=50  到期列表（scope=all 时去掉 due）
 //   GET  /api/mistakes/<id>                详情（含答案与解析）
 //   POST /api/mistakes/<id>/review         四档评分，回写 FSRS
+//   GET  /api/mistakes/<id>/reviews        这道题的复习历史
+//   POST /api/mistakes                     面板里直接录一道新题
+//   GET  /api/meta                         学科/知识点/错因分类/来源的候选值
+//   GET  /api/analytics?days=N             趋势 / 保持度分桶 / 错因分布 / 薄弱知识点
 //   POST /api/mistake-book/session         请**宿主半**按「错题复习」预设建一条会话
 //
 // 最后那条为什么必须走宿主：浏览器的 sessions.create 只序列化 {workspaceId, cwd, sessionId}，
@@ -37,6 +41,8 @@ window.__ModuleLoader__.load({
      * 所以列表 / 详情 / 评分都走这条宿主路由，真实路径放在 ?path= 里。
      */
     const DATA_ENDPOINT = '/api/mistake-book/data';
+    /** 结构化断点候选，与 app.py 的 REVIEW_STEPS 一致。 */
+    const STEPS = ['审题', '建模', '计算', '检验', '表达', '记忆'];
 
     /**
      * hyperscript：h('div.cls', props, ...kids)。
@@ -83,6 +89,8 @@ window.__ModuleLoader__.load({
       '.mb-text{white-space:pre-wrap;line-height:1.65;word-break:break-word}',
       '.mb-panel{border:1px solid var(--mb-line,rgba(127,127,127,.22));border-radius:9px;padding:12px 14px;background:var(--mb-subtle,rgba(127,127,127,.05))}',
       '.mb-reveal{display:flex;align-items:center;gap:8px;margin:6px 0 14px}',
+      '.mb-step{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--mb-dim,rgba(127,127,127,.95))}',
+      '.mb-step select{height:30px}',
       '.mb-rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px}',
       '.mb-rate button{height:36px;border-radius:8px;border:1px solid var(--mb-line,rgba(127,127,127,.3));background:transparent;color:inherit;font-family:inherit;font-size:12px;cursor:pointer}',
       '.mb-rate button:hover{background:var(--mb-hover,rgba(127,127,127,.12))}',
@@ -94,6 +102,33 @@ window.__ModuleLoader__.load({
       '.mb-aibar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.22));flex:0 0 auto}',
       '.mb-aititle{font-size:12px;color:var(--mb-dim,rgba(127,127,127,.95));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.mb-conv{flex:1;min-height:0;overflow:auto}',
+      '.mb-toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.22));flex:0 0 auto;flex-wrap:wrap}',
+      '.mb-input{height:28px;border-radius:7px;border:1px solid var(--mb-line,rgba(127,127,127,.3));background:transparent;color:inherit;font-family:inherit;font-size:12px;padding:0 8px;min-width:0}',
+      '.mb-input:focus{outline:2px solid var(--mb-accent,#3b6ef0);outline-offset:-1px}',
+      'input.mb-input{flex:1 1 170px;min-width:120px}',
+      'select.mb-input{flex:0 1 auto;max-width:150px}',
+      '.mb-form{overflow:auto;padding:16px 18px;display:grid;gap:12px;align-content:start}',
+      '.mb-field{display:grid;gap:5px;min-width:0}',
+      '.mb-field>span{font-size:11px;letter-spacing:.3px;color:var(--mb-dim,rgba(127,127,127,.95))}',
+      '.mb-form textarea,.mb-form input,.mb-form select{width:100%;box-sizing:border-box;border-radius:8px;border:1px solid var(--mb-line,rgba(127,127,127,.3));background:transparent;color:inherit;font-family:inherit;font-size:13px;padding:7px 9px;min-width:0}',
+      '.mb-form textarea{resize:vertical;min-height:64px;line-height:1.55}',
+      '.mb-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}',
+      '.mb-formfoot{display:flex;gap:8px;align-items:center;padding-top:2px;flex-wrap:wrap}',
+      '.mb-chart{display:flex;align-items:flex-end;gap:2px;height:92px;padding-top:6px}',
+      '.mb-col{flex:1 1 0;min-width:0;display:flex;align-items:flex-end;gap:1px;height:100%}',
+      '.mb-bar{flex:1 1 0;min-width:1px;border-radius:2px 2px 0 0;background:#3b6ef0;opacity:.85}',
+      '.mb-bar.r{background:#2f9e5f}',
+      '.mb-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--mb-dim,rgba(127,127,127,.95));margin-top:4px}',
+      '.mb-legend{display:flex;gap:14px;font-size:11px;color:var(--mb-dim,rgba(127,127,127,.95));margin-top:6px}',
+      '.mb-swatch{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}',
+      '.mb-brow{display:grid;grid-template-columns:60px minmax(0,1fr) 34px;gap:8px;align-items:center;font-size:12px;margin-bottom:6px}',
+      '.mb-track{height:8px;border-radius:4px;background:var(--mb-hover,rgba(127,127,127,.16));overflow:hidden}',
+      '.mb-fill{height:100%;border-radius:4px;background:#3b6ef0}',
+      '.mb-chip{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--mb-line,rgba(127,127,127,.3));border-radius:999px;padding:2px 9px;font-size:11px;margin:0 6px 6px 0}',
+      '.mb-hrow{display:flex;gap:8px;align-items:baseline;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--mb-line,rgba(127,127,127,.18))}',
+      '.mb-hrow:last-child{border-bottom:0}',
+      '.mb-htime{color:var(--mb-dim,rgba(127,127,127,.95));font-size:11px;min-width:78px;flex:0 0 auto}',
+      '@media(max-width:760px){.mb-row2{grid-template-columns:1fr}}',
       '@media(max-width:760px){.mb-body{grid-template-columns:minmax(0,1fr)}.mb-list{max-height:38%;border-right:0;border-bottom:1px solid var(--mb-line,rgba(127,127,127,.22))}}',
     ].join('');
 
@@ -216,6 +251,219 @@ window.__ModuleLoader__.load({
             renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false }))));
     }
 
+    /* ── 复习历史 ─────────────────────────────────────────────────────── */
+
+    /** 这道题历次复习（点开才拉，省一次请求）。 */
+    function HistoryBlock(props) {
+      const id = props.id;
+      const count = props.count || 0;
+      const [open, setOpen] = useState(false);
+      const [log, setLog] = useState(null);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        if (!open || log) return undefined;
+        let cancelled = false;
+        data('/api/mistakes/' + id + '/reviews')
+          .then((value) => { if (!cancelled) setLog(value); })
+          .catch((failure) => { if (!cancelled) setError(String((failure && failure.message) || failure)); });
+        return () => { cancelled = true; };
+      }, [open, id, log]);
+
+      const labels = { again: '忘了', hard: '模糊', good: '记得', easy: '简单' };
+      const summary = log && typeof log.total === 'number'
+        ? '复习 ' + log.total + ' 次' + (log.accuracy === null || log.accuracy === undefined
+          ? '' : ' · 正确率 ' + Math.round(log.accuracy * 100) + '%')
+        : count ? '复习 ' + count + ' 次' : '还没复习过';
+
+      return h('div.mb-block', null,
+        h('div.mb-label', null, '复习历史'),
+        h('div.mb-reveal', null,
+          h('button.mb-btn', {
+            onClick: () => setOpen(!open),
+            disabled: !count && !open,
+          }, (open ? '收起' : '查看') + ' · ' + summary)),
+        open ? h('div', null,
+          error ? h('div.mb-note.bad', null, error) :
+            !log ? h('div.mb-empty', null, '读取中…') :
+              !log.items.length ? h('div.mb-empty', null, '还没有复习记录') :
+                log.items.map((row) => h('div.mb-hrow', { key: row.id },
+                  h('span.mb-htime', null, String(row.reviewed_at || '').slice(5, 16)),
+                  h('span', null, (labels[row.result] || row.result || '') +
+                    (row.step ? ' · 断点 ' + row.step : '')),
+                  h('span.mb-meta', { style: { marginTop: '0', marginLeft: 'auto' } },
+                    row.interval_days ? h('span', null, '间隔 ' + row.interval_days + ' 天') : null,
+                    row.stage ? h('span', null, '· 阶段 ' + row.stage) : null)))) : null);
+    }
+
+    /* ── 新建错题 ─────────────────────────────────────────────────────── */
+
+    /** 面板里直接录一道（POST /api/mistakes；题干是唯一必填，其余留空即不写）。 */
+    function NewForm(props) {
+      const meta = props.meta || {};
+      const [form, setForm] = useState({
+        question: '', my_answer: '', answer: '', analysis: '',
+        subject: '', knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3',
+      });
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState('');
+
+      const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
+      const choices = (id, values) => h('datalist', { id },
+        (values || []).map((value) => h('option', { key: value, value })));
+
+      const save = async () => {
+        if (!String(form.question).trim()) { setError('题目不能为空'); return; }
+        setBusy(true);
+        setError('');
+        try {
+          const body = Object.assign({}, form, { difficulty: Number(form.difficulty) || 3 });
+          const item = await data('/api/mistakes', { method: 'POST', body: JSON.stringify(body) });
+          props.onSaved(item);
+        } catch (failure) {
+          setError(String((failure && failure.message) || failure));
+        } finally { setBusy(false); }
+      };
+
+      return h('div.mb-form', null,
+        h('div.mb-field', null, h('span', null, '题目（必填）'),
+          h('textarea', { value: form.question, onChange: set('question'), rows: 4, placeholder: '粘贴题干…' })),
+        h('div.mb-row2', null,
+          h('div.mb-field', null, h('span', null, '我的错误答案'),
+            h('textarea', { value: form.my_answer, onChange: set('my_answer'), rows: 2 })),
+          h('div.mb-field', null, h('span', null, '正确答案'),
+            h('textarea', { value: form.answer, onChange: set('answer'), rows: 2 }))),
+        h('div.mb-field', null, h('span', null, '解析'),
+          h('textarea', { value: form.analysis, onChange: set('analysis'), rows: 3 })),
+        h('div.mb-row2', null,
+          h('div.mb-field', null, h('span', null, '学科'),
+            h('input', { value: form.subject, onChange: set('subject'), list: 'mb-dl-subject' }),
+            choices('mb-dl-subject', meta.subjects)),
+          h('div.mb-field', null, h('span', null, '知识点'),
+            h('input', { value: form.knowledge, onChange: set('knowledge'), list: 'mb-dl-knowledge' }),
+            choices('mb-dl-knowledge', meta.knowledge))),
+        h('div.mb-row2', null,
+          h('div.mb-field', null, h('span', null, '错因分类'),
+            h('select', { value: form.mistake_type, onChange: set('mistake_type') },
+              h('option', { value: '' }, '（不填）'),
+              (meta.mistake_types || []).map((value) => h('option', { key: value, value }, value)))),
+          h('div.mb-field', null, h('span', null, '来源'),
+            h('input', { value: form.source, onChange: set('source'), list: 'mb-dl-source' }),
+            choices('mb-dl-source', meta.sources))),
+        h('div.mb-row2', null,
+          h('div.mb-field', null, h('span', null, '标签（逗号分隔）'),
+            h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' })),
+          h('div.mb-field', null, h('span', null, '难度'),
+            h('select', { value: form.difficulty, onChange: set('difficulty') },
+              [1, 2, 3, 4, 5].map((n) => h('option', { key: n, value: String(n) }, n + ' 星'))))),
+        h('div.mb-formfoot', null,
+          h('button.mb-btn.primary', { onClick: () => void save(), disabled: busy }, busy ? '保存中…' : '保存'),
+          h('button.mb-btn', { onClick: props.onCancel, disabled: busy }, '取消'),
+          error ? h('span.mb-note.bad', null, error) : null));
+    }
+
+    /* ── 学习分析 ─────────────────────────────────────────────────────── */
+
+    /** 趋势 / 保持度预测 / 薄弱知识点 / 错因与学科分布（GET /api/analytics）。 */
+    function AnalyticsView() {
+      const [days, setDays] = useState(30);
+      const [report, setReport] = useState(null);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        let cancelled = false;
+        data('/api/analytics?days=' + days)
+          .then((value) => { if (!cancelled) { setReport(value); setError(''); } })
+          .catch((failure) => { if (!cancelled) setError(String((failure && failure.message) || failure)); });
+        return () => { cancelled = true; };
+      }, [days]);
+
+      if (error) return h('div.mb-empty', null, error);
+      if (!report) return h('div.mb-empty', null, '统计中…');
+
+      const trend = Array.isArray(report.trend) ? report.trend : [];
+      const peak = Math.max(1, ...trend.map((row) => Math.max(row.created || 0, row.reviewed || 0)));
+      const totals = report.trend_totals || {};
+      const retention = report.retention || { counts: [], total: 0 };
+      const buckets = Array.isArray(retention.counts) ? retention.counts : [];
+      const maxBucket = Math.max(1, ...buckets.map((bucket) => bucket.count || 0));
+      const weak = Array.isArray(report.weak_points) ? report.weak_points : [];
+      const types = Array.isArray(report.by_type) ? report.by_type : [];
+      const subs = Array.isArray(report.by_subject) ? report.by_subject : [];
+
+      return h('div.mb-detail', null,
+        h('div.mb-block', null,
+          h('div.mb-label', null, '统计窗口'),
+          h('div.mb-seg', null,
+            [7, 30, 90].map((n) => h('button', {
+              key: n, className: days === n ? 'on' : '', onClick: () => setDays(n),
+            }, '近 ' + n + ' 天')))),
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '录入与复习'),
+          h('div.mb-panel', null,
+            h('div.mb-chart', null, trend.map((row) => h('div.mb-col', {
+              key: row.date,
+              title: row.date + ' · 新增 ' + (row.created || 0) + ' · 复习 ' + (row.reviewed || 0),
+            },
+              h('div.mb-bar', { style: { height: Math.round((row.created || 0) / peak * 100) + '%' } }),
+              h('div.mb-bar.r', { style: { height: Math.round((row.reviewed || 0) / peak * 100) + '%' } })))),
+            h('div.mb-axis', null,
+              h('span', null, trend.length ? dayOf(trend[0].date) : ''),
+              h('span', null, trend.length ? dayOf(trend[trend.length - 1].date) : '')),
+            h('div.mb-legend', null,
+              h('span', null, h('i.mb-swatch', { style: { background: '#3b6ef0' } }), '新增 ' + (totals.created || 0)),
+              h('span', null, h('i.mb-swatch', { style: { background: '#2f9e5f' } }), '复习 ' + (totals.reviewed || 0))))),
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '保持度预测 · ' + (retention.total || 0) + ' 道在复习'),
+          h('div.mb-panel', null,
+            buckets.map((bucket) => h('div.mb-brow', { key: bucket.key },
+              h('span', null, bucket.label),
+              h('div.mb-track', null,
+                h('div.mb-fill', { style: { width: Math.round((bucket.count || 0) / maxBucket * 100) + '%' } })),
+              h('span', { style: { textAlign: 'right' } }, String(bucket.count || 0)))),
+            retention.note ? h('div.mb-axis', null, h('span', null, retention.note)) : null)),
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '最该补的知识点'),
+          weak.length
+            ? h('div.mb-panel', null, weak.slice(0, 8).map((point) => h('div.mb-hrow', { key: point.knowledge },
+              h('span.mb-htime', null, point.knowledge),
+              h('span', null, (point.mistakes || 0) + ' 道'),
+              h('span.mb-meta', { style: { marginTop: '0', marginLeft: 'auto' } },
+                h('span', null, point.accuracy === null || point.accuracy === undefined
+                  ? '未测' : '正确率 ' + Math.round(point.accuracy * 100) + '%')))))
+            : h('div.mb-empty', null, '还没有可统计的知识点')),
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '错因分布'),
+          types.length
+            ? h('div', null, types.map((row) => h('span.mb-chip', { key: row.name },
+              row.name, h('b', null, String(row.count)))))
+            : h('div.mb-empty', null, '还没有错因分类')),
+
+        (Array.isArray(report.by_step) && report.by_step.length) ? h('div.mb-block', null,
+          h('div.mb-label', null, '错在哪一步 · 共 ' + report.by_step.reduce((sum, row) => sum + (row.count || 0), 0) + ' 次断点'),
+          h('div', null, report.by_step.map((row) => h('span.mb-chip', { key: row.name },
+            row.name, h('b', null, String(row.count))))),
+          (Array.isArray(report.step_patterns) && report.step_patterns.length)
+            ? h('div.mb-panel', { style: { marginTop: '8px' } },
+                report.step_patterns.map((row) => h('div.mb-hrow', { key: row.knowledge + '|' + row.step },
+                  h('span.mb-htime', null, row.knowledge),
+                  h('span', null, row.step),
+                  h('span.mb-meta', { style: { marginTop: '0', marginLeft: 'auto' } },
+                    h('span', null, '错了 ' + row.count + ' 次')))))
+            : null) : null,
+
+        h('div.mb-block', null,
+          h('div.mb-label', null, '学科分布'),
+          subs.length
+            ? h('div', null, subs.map((row) => h('span.mb-chip', { key: row.name },
+              row.name, h('b', null, String(row.count)))))
+            : h('div.mb-empty', null, '还没有学科')));
+    }
+
     /* ── 主体 ─────────────────────────────────────────────────────────── */
 
     function MistakeBookApp(props) {
@@ -232,7 +480,16 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false);
       const [note, setNote] = useState(null);
       const [ai, setAi] = useState(null);
+      const [meta, setMeta] = useState(null);
+      const [view, setView] = useState('review');
+      const [creating, setCreating] = useState(false);
+      const [q, setQ] = useState('');
+      const [qLive, setQLive] = useState('');
+      const [subject, setSubject] = useState('');
+      // 放在最后：渲染测试的 seed 顺序按 useState 顺序写死，新状态加到末尾就不必挪索引
+      const [step, setStep] = useState('');
       const alive = useRef(true);
+      const preferRef = useRef(0);
 
       useEffect(() => () => { alive.current = false; }, []);
 
@@ -240,7 +497,12 @@ window.__ModuleLoader__.load({
         setLoading(true);
         setError('');
         try {
-          const query = scope === 'due' ? '?due=1&page_size=50' : '?page_size=50';
+          const params = [];
+          if (scope === 'due') params.push('due=1');
+          params.push('page_size=50');
+          if (qLive) params.push('q=' + encodeURIComponent(qLive));
+          if (subject) params.push('subject=' + encodeURIComponent(subject));
+          const query = '?' + params.join('&');
           const [nextStats, page] = await Promise.all([
             data('/api/stats'),
             data('/api/mistakes' + query),
@@ -250,6 +512,9 @@ window.__ModuleLoader__.load({
           const rows = (page && Array.isArray(page.items)) ? page.items : [];
           setItems(rows);
           setPicked((current) => {
+            // 刚录完的那道优先选中；找不到再保持当前；都没有就选第一条
+            const want = preferRef.current;
+            if (want && rows.some((row) => row.id === want)) { preferRef.current = 0; return want; }
             if (current && rows.some((row) => row.id === current)) return current;
             return rows.length ? rows[0].id : 0;
           });
@@ -261,15 +526,30 @@ window.__ModuleLoader__.load({
         } finally {
           if (alive.current) setLoading(false);
         }
-      }, [scope]);
+      }, [scope, qLive, subject]);
 
       useEffect(() => { void load(); }, [load]);
+
+      // 搜索框 250ms 防抖：每敲一个字就打一次接口太吵
+      useEffect(() => {
+        const timer = setTimeout(() => setQLive(q.trim()), 250);
+        return () => clearTimeout(timer);
+      }, [q]);
+
+      useEffect(() => {
+        let cancelled = false;
+        data('/api/meta')
+          .then((value) => { if (!cancelled) setMeta(value); })
+          .catch(() => { /* 候选值拿不到不影响主流程，输入框退化成自由文本 */ });
+        return () => { cancelled = true; };
+      }, []);
 
       useEffect(() => {
         if (!picked) { setDetail(null); return undefined; }
         let cancelled = false;
         setRevealed(false);
         setNote(null);
+        setStep('');
         data('/api/mistakes/' + picked)
           .then((item) => { if (!cancelled) setDetail(item); })
           .catch((failure) => { if (!cancelled) setError(String((failure && failure.message) || failure)); });
@@ -284,7 +564,7 @@ window.__ModuleLoader__.load({
         try {
           const item = await data('/api/mistakes/' + picked + '/review', {
             method: 'POST',
-            body: JSON.stringify({ result }),
+            body: JSON.stringify({ result, step: step || undefined }),
           });
           const when = item && item.next_review_at ? dayOf(item.next_review_at) : '';
           setNote({ ok: true, text: when ? '已记录 · 下次 ' + when : '已记录' });
@@ -295,7 +575,7 @@ window.__ModuleLoader__.load({
         } finally {
           if (alive.current) setBusy(false);
         }
-      }, [picked, busy, load]);
+      }, [picked, busy, load, step]);
 
       /** 请宿主半按「错题复习」预设建一条会话，然后嵌进来。 */
       const startAi = useCallback(async () => {
@@ -320,17 +600,57 @@ window.__ModuleLoader__.load({
         }
       }, [picked, busy]);
 
+      /** 新建成功：切回复习视图 + 全部范围，并让新条目被选中。 */
+      const onSaved = useCallback((item) => {
+        preferRef.current = item && item.id ? item.id : 0;
+        setCreating(false);
+        setView('review');
+        setScope('all');
+        setQ('');
+        setQLive('');
+        setSubject('');
+        void load();
+      }, [load]);
+
       const total = stats && typeof stats.total === 'number' ? stats.total : 0;
       const due = stats && typeof stats.due === 'number' ? stats.due : 0;
+
+      const subjects = (meta && Array.isArray(meta.subjects)) ? meta.subjects : [];
 
       const head = h('header.mb-head', null,
         h('span.mb-title', null, '错题复习'),
         h('span.mb-stats', null, '共 ' + total + ' 道 · 到期 ' + due + ' 道'),
         h('span.mb-spacer'),
+        h('button.mb-btn.primary', { onClick: () => { setAi(null); setCreating(true); } }, '＋ 新建'),
+        h('div.mb-seg', null,
+          h('button', { className: view === 'review' ? 'on' : '', onClick: () => { setCreating(false); setView('review'); } }, '复习'),
+          h('button', { className: view === 'stats' ? 'on' : '', onClick: () => { setCreating(false); setView('stats'); } }, '分析')));
+
+      const toolbar = h('div.mb-toolbar', null,
+        h('input.mb-input', {
+          type: 'search', placeholder: '搜题干 / 知识点 / 标签', value: q,
+          onChange: (event) => setQ(event.target.value),
+        }),
+        h('select.mb-input', {
+          value: subject, title: '按学科筛选',
+          onChange: (event) => setSubject(event.target.value),
+        },
+          h('option', { value: '' }, '全部学科'),
+          subjects.map((name) => h('option', { key: name, value: name }, name))),
         h('div.mb-seg', null,
           h('button', { className: scope === 'due' ? 'on' : '', onClick: () => setScope('due') }, '到期'),
           h('button', { className: scope === 'all' ? 'on' : '', onClick: () => setScope('all') }, '全部')),
+        h('span.mb-spacer'),
         h('button.mb-btn', { onClick: () => void load(), disabled: loading }, loading ? '刷新中…' : '刷新'));
+
+      if (view === 'stats') {
+        return h('div.mb', null, head, h(AnalyticsView, null));
+      }
+
+      if (creating) {
+        return h('div.mb', null, head,
+          h(NewForm, { meta, onCancel: () => setCreating(false), onSaved }));
+      }
 
       if (ai) {
         return h('div.mb', null, head,
@@ -384,8 +704,21 @@ window.__ModuleLoader__.load({
           item.knowledge ? h('div.mb-block', null,
             h('div.mb-label', null, '知识点'),
             h('div.mb-text', null, item.knowledge)) : null,
+          h(HistoryBlock, {
+            key: item.id + ':' + (item.review_count || 0),
+            id: item.id, count: item.review_count || 0,
+          }),
           h('div.mb-block', null,
             h('div.mb-label', null, '这次记得怎么样'),
+            h('div.mb-step', null,
+              h('span', null, '错在哪一步'),
+              h('select.mb-input', {
+                value: step,
+                disabled: busy,
+                onChange: (event) => setStep(event.target.value),
+              },
+                h('option', { value: '' }, '不记录'),
+                STEPS.map((value) => h('option', { key: value, value }, value)))),
             h('div.mb-rate', null,
               h('button', { onClick: () => void rate('again'), disabled: busy }, h('b', null, '忘了'), h('span', null, 'again')),
               h('button', { onClick: () => void rate('hard'), disabled: busy }, h('b', null, '模糊'), h('span', null, 'hard')),
@@ -397,7 +730,7 @@ window.__ModuleLoader__.load({
               busy ? '正在建会话…' : '让 AI 带我复习这道')));
       }
 
-      return h('div.mb', null, head, h('div.mb-body', null, list, body));
+      return h('div.mb', null, head, toolbar, h('div.mb-body', null, list, body));
     }
 
     /** 侧栏图标：一本打了勾的本子。 */

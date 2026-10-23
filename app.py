@@ -37,6 +37,9 @@ STATUSES = ("new", "reviewing", "mastered")
 STATUS_LABELS = {"new": "待复习", "reviewing": "复习中", "mastered": "已掌握"}
 # 结构化错因分类：值即中文标签，省掉一层映射
 MISTAKE_TYPES = ("概念不清", "计算失误", "审题错误", "方法不会", "粗心", "其他")
+# 结构化断点（v0.22）：这次错在解题流程的哪一步。用枚举而不是自由文本，
+# 否则「计算错了」「算错」「计算失误」会碎成三堆，易错模式就聚合不出来了。
+REVIEW_STEPS = ("审题", "建模", "计算", "检验", "表达", "记忆")
 SOURCE_HINTS = ("作业", "练习册", "周测", "月考", "期中", "期末", "模拟考", "其他")
 # 复习评分 -> FSRS rating（1=again 2=hard 3=good 4=easy）
 RESULT_RATINGS = {"again": 1, "hard": 2, "good": 3, "easy": 4}
@@ -146,6 +149,7 @@ CREATE TABLE IF NOT EXISTS review_logs (
     interval_days INTEGER NOT NULL DEFAULT 0,
     fsrs_stability  REAL NOT NULL DEFAULT 0,
     fsrs_difficulty REAL NOT NULL DEFAULT 0,
+    step         TEXT    NOT NULL DEFAULT '',
     reviewed_at  TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_logs_mistake ON review_logs(mistake_id, reviewed_at);
@@ -222,6 +226,7 @@ MIGRATIONS = (
     ("review_logs", "fsrs_difficulty", "REAL NOT NULL DEFAULT 0"),
     ("mistakes", "image_file", "TEXT NOT NULL DEFAULT ''"),
     ("mistakes", "paper_id", "INTEGER NOT NULL DEFAULT 0"),
+    ("review_logs", "step", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -238,6 +243,62 @@ class NotFound(Exception):
 # --------------------------------------------------------------------------- #
 def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _events_path(conn: sqlite3.Connection) -> str:
+    """事件流文件放数据库旁边，跟着 --db 走，多份库互不干扰。"""
+    for row in conn.execute("PRAGMA database_list").fetchall():
+        if row[1] == "main" and row[2]:
+            return os.path.join(os.path.dirname(os.path.abspath(row[2])), "events.ndjson")
+    return os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "events.ndjson")
+
+
+def append_event(conn: sqlite3.Connection, kind: str, **fields) -> dict:
+    """追加一条 NDJSON 事件。
+
+    为什么单独一个文件而不是加表：事件是「只增不改」的流水，用来回放一次学习
+    发生了什么（谁、哪道题、错在哪一步、隔多久）。塞进 SQLite 会逼着每次复习
+    都多一次写事务，还会被 --read-only 误伤；旁路文件坏了也不影响主流程。
+    """
+    event = {"ts": now_str(), "kind": kind}
+    for key, value in fields.items():
+        if value is None or value == "":
+            continue
+        event[key] = value
+    try:
+        path = _events_path(conn)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # 事件流是旁路：写不进去也不能拖垮复习本身
+    return event
+
+
+def read_events(conn: sqlite3.Connection, limit: int = 50, kind: str = "",
+                mid: int = 0) -> dict:
+    """读事件流尾部；坏行直接跳过（手工编辑过的文件不至于整条流读不出来）。"""
+    path = _events_path(conn)
+    if not os.path.exists(path):
+        return {"items": [], "total": 0, "path": path}
+    items = []
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if kind and event.get("kind") != kind:
+                continue
+            if mid and int(event.get("id") or 0) != mid:
+                continue
+            items.append(event)
+    return {"items": items[-limit:], "total": len(items), "path": path}
 
 
 def connect(db_path: str = DB_PATH) -> sqlite3.Connection:
@@ -601,6 +662,9 @@ def create_mistake(conn: sqlite3.Connection, body: dict) -> dict:
     )
     _set_images(conn, cur.lastrowid, files)
     conn.commit()
+    append_event(conn, "created", id=cur.lastrowid, subject=data["subject"],
+                 knowledge=data["knowledge"], mistake_type=data["mistake_type"],
+                 source=data["source"], question=data["question"][:80])
     return get_mistake(conn, cur.lastrowid)
 
 
@@ -868,6 +932,7 @@ def set_suspended(conn: sqlite3.Connection, mid: int, suspended: bool = True) ->
     conn.execute("UPDATE mistakes SET suspended = ?, updated_at = ? WHERE id = ?",
                  (1 if suspended else 0, now_str(), mid))
     conn.commit()
+    append_event(conn, "suspended" if suspended else "resumed", id=mid)
     return get_mistake(conn, mid)
 
 
@@ -880,6 +945,19 @@ def _elapsed_days(last_reviewed_at: str | None, now: datetime) -> float:
     except ValueError:
         return 0.0
     return max(0.0, (now - last).total_seconds() / 86400.0)
+
+
+def _parse_step(body: dict) -> str:
+    """这次错在解题流程的哪一步；不填就存空串（不强制，免得录一道题还得先想清楚）。"""
+    raw = body.get("step")
+    if raw is None:
+        return ""
+    raw = str(raw).strip()
+    if not raw:
+        return ""
+    if raw not in REVIEW_STEPS:
+        raise ValidationError("错在哪一步只能是：%s" % "、".join(REVIEW_STEPS))
+    return raw
 
 
 def _parse_rating(body: dict) -> int:
@@ -926,6 +1004,8 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
     if row is None:
         raise NotFound("错题不存在: id=%d" % mid)
 
+    step = _parse_step(body)
+
     # 变式先入库：万一变式不合法，这次复习整体不生效，不留半条记录
     variant = _extract_variant(body)
     if variant is not None:
@@ -947,10 +1027,13 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
             (stamp, stamp, mid))
         conn.execute(
             "INSERT INTO review_logs (mistake_id, result, rating, stage, interval_days, "
-            "fsrs_stability, fsrs_difficulty, reviewed_at) VALUES (?,?,?,?,?,?,?,?)",
+            "fsrs_stability, fsrs_difficulty, step, reviewed_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (mid, "mastered", 0, stage, 0,
-             float(row["fsrs_stability"] or 0), float(row["fsrs_difficulty"] or 0), stamp))
+             float(row["fsrs_stability"] or 0), float(row["fsrs_difficulty"] or 0),
+             step, stamp))
         conn.commit()
+        append_event(conn, "mastered", id=mid, step=step, knowledge=row["knowledge"],
+                     subject=row["subject"])
         item = get_mistake(conn, mid)
         item["variant"] = variant
         return item
@@ -977,11 +1060,15 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
     )
     conn.execute(
         "INSERT INTO review_logs (mistake_id, result, rating, stage, interval_days, "
-        "fsrs_stability, fsrs_difficulty, reviewed_at) VALUES (?,?,?,?,?,?,?,?)",
+        "fsrs_stability, fsrs_difficulty, step, reviewed_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (mid, {1: "again", 2: "hard", 3: "good", 4: "easy"}[rating], rating, stage,
-         interval, result["stability"], result["difficulty"], stamp),
+         interval, result["stability"], result["difficulty"], step, stamp),
     )
     conn.commit()
+    append_event(conn, "reviewed", id=mid, rating=rating,
+                 result={1: "again", 2: "hard", 3: "good", 4: "easy"}[rating],
+                 step=step, interval_days=interval, next_review_at=next_at,
+                 knowledge=row["knowledge"], subject=row["subject"])
     item = get_mistake(conn, mid)
     item["variant"] = variant
     return item
@@ -1007,7 +1094,7 @@ def get_reviews(conn: sqlite3.Connection, mid: int) -> dict:
         raise NotFound("错题不存在: id=%d" % mid)
     rows = conn.execute(
         "SELECT id, result, rating, stage, interval_days, fsrs_stability, "
-        "fsrs_difficulty, reviewed_at FROM review_logs "
+        "fsrs_difficulty, step, reviewed_at FROM review_logs "
         "WHERE mistake_id = ? ORDER BY id DESC", (mid,)).fetchall()
     items = [dict(r) for r in rows]
     # 掌握不算对错；hard/good/easy 算答对，again 算答错
@@ -1772,6 +1859,19 @@ def analytics(conn: sqlite3.Connection, days: int = 30) -> dict:
 
     weak = [p for p in _knowledge_points(conn) if p["accuracy"] is not None]
     weak.sort(key=lambda p: (p["accuracy"], -p["mistakes"]))
+
+    # 结构化断点：按「哪一步」聚合，以及「知识点 × 哪一步」的个人易错模式。
+    # 后者只收 ≥2 次的组合——只错一次的偶然事件不算模式。
+    by_step = [dict(r) for r in conn.execute(
+        "SELECT step AS name, COUNT(*) AS count FROM review_logs "
+        "WHERE step <> '' GROUP BY step ORDER BY count DESC, step").fetchall()]
+    step_patterns = [dict(r) for r in conn.execute(
+        "SELECT m.knowledge AS knowledge, l.step AS step, COUNT(*) AS count "
+        "FROM review_logs l JOIN mistakes m ON m.id = l.mistake_id "
+        "WHERE l.step <> '' AND m.knowledge <> '' "
+        "GROUP BY m.knowledge, l.step HAVING COUNT(*) >= 2 "
+        "ORDER BY count DESC, m.knowledge LIMIT 10").fetchall()]
+
     return {
         "generated_at": now_str(), "window_days": days,
         "trend": trend,
@@ -1784,6 +1884,8 @@ def analytics(conn: sqlite3.Connection, days: int = 30) -> dict:
             "weakest": samples[:8],
             "note": "R = 0.9 ** (距上次复习天数 / 稳定性)，粗略预测，仅供参考",
         },
+        "by_step": by_step,
+        "step_patterns": step_patterns,
         "by_type": [dict(r) for r in conn.execute(
             "SELECT mistake_type AS name, COUNT(*) AS count FROM mistakes "
             "WHERE suspended = 0 AND mistake_type <> '' "
@@ -2171,6 +2273,7 @@ def meta(conn: sqlite3.Connection) -> dict:
     sources = [r[0] for r in conn.execute(
         "SELECT DISTINCT source FROM mistakes WHERE source <> '' ORDER BY source")]
     return {"subjects": subjects, "tags": tags, "knowledge": knowledge,
+            "steps": list(REVIEW_STEPS),
             "statuses": [{"value": k, "label": v} for k, v in STATUS_LABELS.items()],
             "mistake_types": list(MISTAKE_TYPES),
             "sources": sorted(set(sources) | set(SOURCE_HINTS)),
@@ -2681,6 +2784,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path == "/api/analytics" and method == "GET":
                 return self._json(200, {"ok": True, "data": analytics(
                     conn, to_int(one(params, "days"), 30))})
+            if path == "/api/events" and method == "GET":
+                return self._json(200, {"ok": True, "data": read_events(
+                    conn, min(500, max(1, to_int(one(params, "limit"), 50))),
+                    one(params, "kind").strip(), to_int(one(params, "id"), 0))})
             if path == "/api/arena" and method == "GET":
                 return self._json(200, {"ok": True, "data": arena(
                     conn, one(params, "subject").strip(),

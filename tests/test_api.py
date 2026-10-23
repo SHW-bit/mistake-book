@@ -70,6 +70,10 @@ class ApiTest(unittest.TestCase):
         conn.close()
         # 图片目录也要清：否则前一个用例留下的 png 会让"同图只存一份"数错。
         shutil.rmtree(app.image_dir(self.db), ignore_errors=True)
+        # 事件流是旁路文件，不在库里；不删会串到下一个用例。
+        events = os.path.join(self.tmpdir, "events.ndjson")
+        if os.path.exists(events):
+            os.remove(events)
 
     def call(self, method, path, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -1878,6 +1882,88 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(data["papers"]), 1)
         self.assertEqual(data["mistakes"][0]["paper_id"], pid)
         self.assertEqual(len(data["mistake_images"]), 2)
+
+
+    # ── v0.22 结构化断点 + NDJSON 事件流 ──
+
+    def test_review_records_step(self):
+        mid = self.create(question="断点题", knowledge="极限")["id"]
+        status, body = self.call("POST", "/api/mistakes/%d/review" % mid,
+                                 {"rating": "good", "step": "计算"})
+        self.assertEqual(status, 200, body)
+        status, body = self.call("GET", "/api/mistakes/%d/reviews" % mid)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["items"][0]["step"], "计算")
+
+    def test_review_without_step_is_allowed(self):
+        mid = self.create(question="不断点题")["id"]
+        status, body = self.call("POST", "/api/mistakes/%d/review" % mid, {"rating": "good"})
+        self.assertEqual(status, 200, body)
+        status, body = self.call("GET", "/api/mistakes/%d/reviews" % mid)
+        self.assertEqual(body["data"]["items"][0]["step"], "")
+
+    def test_review_rejects_unknown_step(self):
+        mid = self.create(question="乱填断点")["id"]
+        status, body = self.call("POST", "/api/mistakes/%d/review" % mid,
+                                 {"rating": "good", "step": "瞎写"})
+        self.assertEqual(status, 400, body)
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
+
+    def test_meta_lists_steps(self):
+        status, body = self.call("GET", "/api/meta")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["steps"], list(app.REVIEW_STEPS))
+
+    def test_analytics_aggregates_by_step(self):
+        mid = self.create(question="断点聚合题", knowledge="极限")["id"]
+        for _ in range(2):
+            self.call("POST", "/api/mistakes/%d/review" % mid,
+                      {"rating": "again", "step": "计算"})
+        self.call("POST", "/api/mistakes/%d/review" % mid, {"rating": "good", "step": "审题"})
+        status, body = self.call("GET", "/api/analytics?days=30")
+        self.assertEqual(status, 200)
+        data = body["data"]
+        steps = {row["name"]: row["count"] for row in data["by_step"]}
+        self.assertEqual(steps.get("计算"), 2)
+        self.assertEqual(steps.get("审题"), 1)
+        patterns = {(row["knowledge"], row["step"]): row["count"]
+                    for row in data["step_patterns"]}
+        self.assertEqual(patterns.get(("极限", "计算")), 2)
+        self.assertNotIn(("极限", "审题"), patterns)   # 只错一次不算模式
+
+    def test_events_record_create_and_review(self):
+        mid = self.create(question="事件题", subject="高数", knowledge="导数")["id"]
+        self.call("POST", "/api/mistakes/%d/review" % mid,
+                  {"rating": "good", "step": "建模"})
+        status, body = self.call("GET", "/api/events?limit=10")
+        self.assertEqual(status, 200)
+        kinds = [ev["kind"] for ev in body["data"]["items"]]
+        self.assertEqual(kinds, ["created", "reviewed"])
+        reviewed = body["data"]["items"][1]
+        self.assertEqual(reviewed["step"], "建模")
+        self.assertEqual(reviewed["id"], mid)
+        self.assertEqual(reviewed["subject"], "高数")
+
+    def test_events_filter_by_kind_and_id(self):
+        first = self.create(question="事件甲")["id"]
+        second = self.create(question="事件乙")["id"]
+        self.call("POST", "/api/mistakes/%d/review" % second, {"rating": "hard"})
+        status, body = self.call("GET", "/api/events?kind=reviewed")
+        self.assertEqual([ev["id"] for ev in body["data"]["items"]], [second])
+        status, body = self.call("GET", "/api/events?id=%d" % first)
+        self.assertEqual([ev["kind"] for ev in body["data"]["items"]], ["created"])
+        status, body = self.call("GET", "/api/events?kind=reviewed&id=%d" % first)
+        self.assertEqual(body["data"]["items"], [])
+
+    def test_events_file_sits_next_to_db(self):
+        self.create(question="事件路径")
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "events.ndjson")))
+
+    def test_suspended_event(self):
+        mid = self.create(question="斩题事件")["id"]
+        self.call("POST", "/api/mistakes/%d/suspend" % mid)
+        status, body = self.call("GET", "/api/events?kind=suspended")
+        self.assertEqual([ev["id"] for ev in body["data"]["items"]], [mid])
 
 
 if __name__ == "__main__":

@@ -67,6 +67,8 @@ function query(params) {
 }
 
 const MISTAKE_TYPES = ['概念不清', '计算失误', '审题错误', '方法不会', '粗心', '其他'];
+// 与 app.py 的 REVIEW_STEPS 保持一致；用枚举，聚合才有意义
+const REVIEW_STEPS = ['审题', '建模', '计算', '检验', '表达', '记忆'];
 
 /** 今天/逾期该复习什么。 */
 function dueTool(config) {
@@ -269,6 +271,11 @@ function reviewTool(config) {
           enum: ['again', 'hard', 'good', 'easy'],
           description: 'again=重来 hard=困难 good=记得 easy=简单',
         },
+        step: {
+          type: 'string',
+          enum: REVIEW_STEPS,
+          description: '这次错在解题流程的哪一步（可选，用于沉淀个人易错模式）',
+        },
       },
       required: ['id', 'rating'],
     },
@@ -281,12 +288,18 @@ function reviewTool(config) {
       if (['again', 'hard', 'good', 'easy'].indexOf(rating) < 0) {
         throw new Error('rating 只能是 again / hard / good / easy');
       }
+      const body = { rating };
+      const step = String(args.step || '').trim();
+      if (step) {
+        if (REVIEW_STEPS.indexOf(step) < 0) throw new Error('step 只能是 ' + REVIEW_STEPS.join(' / '));
+        body.step = step;
+      }
       const data = await call(s, '/api/mistakes/' + id + '/review', {
         method: 'POST',
-        body: JSON.stringify({ rating }),
+        body: JSON.stringify(body),
       });
       const row = data && data.mistake ? data.mistake : data;
-      const lines = ['已记录 #' + id + ' · ' + rating];
+      const lines = ['已记录 #' + id + ' · ' + rating + (step ? ' · 断点 ' + step : '')];
       if (row && row.next_review_at) lines.push('下次复习：' + row.next_review_at);
       if (row && typeof row.stage === 'number') lines.push('当前阶段：' + row.stage);
       if (row && typeof row.review_count === 'number') lines.push('累计复习：' + row.review_count + ' 次');
@@ -384,12 +397,99 @@ function statsTool(config) {
   };
 }
 
+/** 断点分析：错在流程的哪一步最多，以及知识点 × 断点的固定失手模式。 */
+function weakStepsTool(config) {
+  return {
+    name: 'mb_weak_steps',
+    description: '看错在解题流程的哪一步最多，以及「知识点 × 哪一步」的个人易错模式。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        days: { type: 'integer', description: '窗口天数 7-90，默认 90' },
+        limit: { type: 'integer', description: '最多列几个模式，默认 5' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const days = clampInt(args.days, 90, 7, 90);
+      const limit = clampInt(args.limit, 5, 1, 20);
+      const data = await call(s, '/api/analytics' + query({ days }));
+      const byStep = Array.isArray(data.by_step) ? data.by_step : [];
+      const patterns = Array.isArray(data.step_patterns) ? data.step_patterns : [];
+      if (!byStep.length) {
+        return { text: '还没有记录过「错在哪一步」。复习时顺手选一下断点，这里就能看出固定失手位置。' };
+      }
+      const total = byStep.reduce((sum, row) => sum + (row.count || 0), 0);
+      const lines = ['最近 ' + days + ' 天记录了 ' + total + ' 次断点：'];
+      for (const row of byStep) {
+        const pct = total ? Math.round((row.count || 0) / total * 100) : 0;
+        lines.push('  ' + (row.name || '?') + ' ' + (row.count || 0) + ' 次 · ' + pct + '%');
+      }
+      if (patterns.length) {
+        lines.push('', '固定失手模式（同一知识点同一步 ≥2 次）：');
+        for (const row of patterns.slice(0, limit)) {
+          lines.push('  ' + (row.knowledge || '?') + ' → ' + (row.step || '?')
+            + ' 错了 ' + (row.count || 0) + ' 次');
+        }
+      } else {
+        lines.push('', '还没有重复到 2 次以上的「知识点 × 断点」组合。');
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
+/** 回放学习事件流。 */
+function eventsTool(config) {
+  return {
+    name: 'mb_events',
+    description: '回放最近的学习事件（建题 / 复习 / 掌握 / 斩题），按时间顺序。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: { type: 'integer', description: '最多几条，默认 20' },
+        kind: {
+          type: 'string',
+          enum: ['created', 'reviewed', 'mastered', 'suspended', 'resumed'],
+          description: '只看某类事件',
+        },
+        id: { type: 'integer', description: '只看某道错题' },
+      },
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const limit = clampInt(args.limit, 20, 1, 200);
+      const data = await call(s, '/api/events' + query({
+        limit, kind: String(args.kind || '').trim(), id: clampInt(args.id, 0, 0, 2147483647),
+      }));
+      const rows = Array.isArray(data.items) ? data.items : [];
+      if (!rows.length) return { text: '事件流是空的——还没有建题或复习记录。' };
+      const lines = ['最近 ' + rows.length + ' 条事件（共 ' + (data.total || 0) + ' 条）：'];
+      for (const ev of rows) {
+        const parts = [String(ev.ts || '').slice(5, 16), ev.kind || '?'];
+        if (ev.id) parts.push('#' + ev.id);
+        if (ev.step) parts.push('断点 ' + ev.step);
+        if (ev.result) parts.push(ev.result);
+        if (ev.interval_days) parts.push('间隔 ' + ev.interval_days + ' 天');
+        if (ev.knowledge) parts.push(ev.knowledge);
+        lines.push('  ' + parts.join(' · '));
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
 /**
- * 把 6 个工具注册到 agent 的工具面。
+ * 把 8 个工具注册到 agent 的工具面。
  * @param {any} ctx cordis 上下文，用到 tools 一个成员。
  * @param {any} config 插件行 config 段（url / home / python）。
  */
 export function apply(ctx, config) {
-  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, statsTool];
+  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, statsTool,
+    weakStepsTool, eventsTool];
   for (const build of builders) ctx.tools.register(build(config));
 }

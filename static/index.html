@@ -217,6 +217,8 @@ label input,label select,label textarea{width:100%}
 .rate .lbl{color:var(--muted);align-self:center}
 .rate button{height:var(--ctl-sm);padding:0 11px;font-size:13px}
 .rate .iv{opacity:.65;font-size:12px;margin-left:3px}
+.rate .step-pick{flex:1 1 100%;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.rate .step-pick select{height:var(--ctl-sm);font-size:13px;flex:0 1 160px;min-width:0}
 .revealbar{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;
   padding:12px 14px;background:var(--subtle);border:1px solid var(--line);
   border-radius:var(--radius-sm);font-size:13px;color:var(--muted)}
@@ -783,6 +785,9 @@ label input,label select,label textarea{width:100%}
           <button type="button" id="btn-hard" data-rating="2">困难<span class="iv" id="iv-hard"></span></button>
           <button type="button" class="primary" id="btn-good" data-rating="3">记得<span class="iv" id="iv-good"></span></button>
           <button type="button" id="btn-easy" data-rating="4">简单<span class="iv" id="iv-easy"></span></button>
+          <label class="step-pick">错在哪一步（可选）
+            <select id="f-step"><option value="">不记录</option><option value="审题">审题</option><option value="建模">建模</option><option value="计算">计算</option><option value="检验">检验</option><option value="表达">表达</option><option value="记忆">记忆</option></select>
+          </label>
         </div>
         <div class="hist" id="hist" hidden></div>
         <div class="grid2">
@@ -1660,8 +1665,9 @@ label input,label select,label textarea{width:100%}
           : (log.rating === 2 || log.result === 'hard' ? 'mid' : 'ok');
         var tail = (!log.rating && log.result === 'mastered') ? '（停止复习）'
           : (log.interval_days ? '→ ' + log.interval_days + ' 天后' : '');
+        var stepTag = log.step ? ' · ' + esc(log.step) : '';
         return '<span class="' + cls + '">' + esc(label) + '</span> ' +
-          esc(String(log.reviewed_at).slice(0, 16)) + ' ' + tail;
+          esc(String(log.reviewed_at).slice(0, 16)) + stepTag + ' ' + tail;
       });
       box.innerHTML = head + '<br>' + rows.join('<br>') +
         (r.items.length > 6 ? '<br>…共 ' + r.items.length + ' 条' : '');
@@ -1705,6 +1711,7 @@ label input,label select,label textarea{width:100%}
     $('#f-my-answer').value = it ? it.my_answer : '';
     $('#f-answer').value = it ? it.answer : '';
     $('#f-analysis').value = it ? (it.analysis || '') : '';
+    $('#f-step').value = '';
     $('#f-error-reason').value = it ? it.error_reason : '';
     $('#f-type').value = it ? (it.mistake_type || '') : '';
     $('#f-source').value = it ? (it.source || '') : '';
@@ -1795,7 +1802,7 @@ label input,label select,label textarea{width:100%}
     api('/api/mistakes/' + state.editing.id + '/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating: Number(rating) })
+      body: JSON.stringify({ rating: Number(rating), step: $('#f-step').value || undefined })
     }).then(function (it) {
       fillForm(it);
       return Promise.all([load(), loadStats()]);
