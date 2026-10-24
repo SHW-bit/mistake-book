@@ -1206,3 +1206,33 @@ test('复习历史：老记录（hints=-1、无留证）不多出一行空证据
   const dom = render(loadPlugin([true, log, '']).plugin.__test__.HistoryBlock({ id: 6, count: 1 }));
   assert.equal(nodesOf(dom, 'div').filter((node) => /mb-hevidence/.test(node.props.className || '')).length, 0);
 });
+
+test('空库引导：三步路径 + 「录第一道」按钮（v0.56）', () => {
+  const { plugin } = loadPlugin([]);
+  const withBtn = textOf(render(plugin.__test__.EmptyGuide({ onCreate: () => {} }))).join('|');
+  assert.match(withBtn, /题库还是空的，先做这三步/);
+  assert.match(withBtn, /录第一道/);
+  assert.match(withBtn, /Ctrl\+V/);
+  assert.match(withBtn, /让 AI 带我练今天/);
+  assert.match(withBtn, /＋ 录第一道/);
+  // 没给 onCreate 时不硬塞按钮（别的地方复用这个组件时不该多一个死按钮）
+  const noBtn = textOf(render(plugin.__test__.EmptyGuide({}))).join('|');
+  assert.doesNotMatch(noBtn, /＋ 录第一道/);
+});
+
+test('批量会话左栏：列出这次要练的几道（v0.56）', () => {
+  const { plugin } = loadPlugin([]);
+  const dom = render(plugin.__test__.BatchSide({
+    rows: [
+      { id: 5, question: '求 lim(x→0) tan 2x / x', subject: '高数', reason: '逾期 2 天' },
+      { id: 6, question: '矩阵的秩怎么求', subject: '', reason: '' },
+    ],
+  }));
+  const text = textOf(dom).join('|');
+  assert.match(text, /这次要练的 2 道/);
+  assert.match(text, /求 lim/);
+  assert.match(text, /逾期 2 天/);
+  assert.match(text, /矩阵的秩怎么求/);
+  // 左栏是 mb-aiduo-side，复用单题分栏的样式
+  assert.ok(classesOf(dom).some((name) => /mb-aiduo-side/.test(name)), '左栏要挂 mb-aiduo-side');
+});

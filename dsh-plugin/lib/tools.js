@@ -1084,6 +1084,98 @@ function briefTool(config) {
   };
 }
 
+/** 一次性诊断：把「今天练什么 / 哪里弱 / 老栽在哪」合成一段，省掉三次往返。 */
+function diagnoseTool(config) {
+  return {
+    name: 'mb_diagnose',
+    description: '一次问清「我现在最该补什么」：今天先练哪几道（带理由）、最弱知识点、反复栽的断点、复习量与零提示做对率，末尾一句下一步。省掉分别调 mb_brief / mb_weak_steps / mb_stats。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        days: { type: 'integer', description: '统计窗口天数 7-90，默认 30' },
+        limit: { type: 'integer', description: '今天先练几道，默认 3，范围 1-10' },
+      },
+      required: [],
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const days = clampInt(args.days, 30, 7, 90);
+      const limit = clampInt(args.limit, 3, 1, 10);
+      // 两个都是只读 GET，可以并发：诊断要在一次工具调用里问完，不该串成三轮
+      const [head, report] = await Promise.all([
+        call(s, '/api/brief' + query({ days, limit })),
+        call(s, '/api/analytics' + query({ days })),
+      ]);
+      const counts = head.counts || {};
+      const items = Array.isArray(head.items) ? head.items : [];
+      const weak = Array.isArray(head.weak_points) ? head.weak_points : [];
+      const patterns = Array.isArray(head.patterns) ? head.patterns : [];
+      const byStep = Array.isArray(report.by_step) ? report.by_step : [];
+      const sample = report.sample || head.sample || null;
+
+      const lines = ['诊断 · 近 ' + (head.window_days || days) + ' 天'];
+      const stock = ['在库活跃 ' + (counts.active || 0) + ' 道',
+        '今天到期 ' + (counts.due_today || 0) + ' 道'];
+      if (counts.overdue) stock.push('其中逾期 ' + counts.overdue + ' 道');
+      lines.push(stock.join(' · '));
+
+      const reviews = sample && typeof sample.reviews === 'number' ? sample.reviews : null;
+      const rate = counts.graded_with_hints && typeof counts.hint_free_correct === 'number'
+        ? Math.round(counts.hint_free_correct * 100) + '%（' + counts.graded_with_hints + ' 次有记录）'
+        : '还没有记录';
+      lines.push('复习量 ' + (reviews === null ? '—' : reviews + ' 次') + ' · 零提示做对率 ' + rate);
+
+      if (items.length) {
+        lines.push('', '今天先练：');
+        for (const item of items) {
+          lines.push('  #' + item.id + ' [' + (item.subject || '未分类')
+            + (item.knowledge ? ' · ' + item.knowledge : '') + '] ' + clip(item.question, 50));
+          if (item.reason) lines.push('     为什么：' + item.reason);
+        }
+      } else {
+        // 空库和「今天刚好没到期」是两件事：前者该指路，后者该给自由
+        lines.push('', counts.active === 0
+          ? '题库还是空的 —— 先录第一道。'
+          : '今天没有到期题 —— 想练就自己挑，或用 mb_search 按知识点找。');
+      }
+
+      if (weak.length) {
+        lines.push('', '最弱的知识点：');
+        for (const point of weak.slice(0, 3)) {
+          const accuracy = typeof point.accuracy === 'number'
+            ? Math.round(point.accuracy * 100) + '%' : '—';
+          lines.push('  「' + (point.knowledge || '?') + '」正确率 ' + accuracy
+            + '（' + (point.mistakes || 0) + ' 道 / ' + (point.graded || 0) + ' 次）');
+        }
+      }
+
+      if (patterns.length) {
+        lines.push('', '反复栽的断点：');
+        for (const row of patterns.slice(0, 3)) {
+          lines.push('  「' + (row.knowledge || '?') + '」第 ' + (row.count || 0)
+            + ' 次错在「' + (row.step || '?') + '」');
+        }
+      } else if (byStep.length) {
+        const top = byStep.slice().sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 2);
+        lines.push('', '断点分布：' + top.map((row) => (row.name || '?') + ' ' + (row.count || 0) + ' 次').join(' · '));
+      }
+
+      const advice = counts.active === 0
+        ? '面板点「＋ 新建」录一道，或者把题目/截图发我，我用 mb_add 帮你录。'
+        : head.note
+          || (sample && sample.enough === false ? '先把量做起来：连续两周每天做完到期题，再看趋势。' : '');
+      if (advice) lines.push('', '下一步：' + advice);
+      // 空库时不念「样本还少」—— 一道题都没有，谈样本量没有意义
+      if (counts.active !== 0 && sample && sample.enough === false && sample.note) {
+        lines.push('（' + sample.note + '）');
+      }
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
 function mergeTool(config) {
   return {
     name: 'mb_merge',
@@ -1137,7 +1229,7 @@ function mergeTool(config) {
  * @param {any} config 插件行 config 段（url / home / python）。
  */
 export function apply(ctx, config) {
-  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, briefTool, statsTool,
+  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, briefTool, diagnoseTool, statsTool,
     weakStepsTool, eventsTool, batchTool, paperTool, reportTool, suggestTool, mergeTool];
   for (const build of builders) ctx.tools.register(build(config));
 }

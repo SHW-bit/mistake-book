@@ -47,13 +47,82 @@ function tools() {
   return { list: registered, map };
 }
 
-test('注册 14 个工具，名字不重复', () => {
+test('注册 15 个工具，名字不重复', () => {
   const { list } = tools();
   const names = list.map((item) => item.name).sort();
-  assert.equal(names.length, 14);
-  assert.deepEqual(names, ['mb_add', 'mb_batch', 'mb_brief', 'mb_due', 'mb_events', 'mb_get',
+  assert.equal(names.length, 15);
+  assert.deepEqual(names, ['mb_add', 'mb_batch', 'mb_brief', 'mb_diagnose', 'mb_due', 'mb_events', 'mb_get',
     'mb_merge', 'mb_paper', 'mb_report', 'mb_review', 'mb_search', 'mb_stats',
     'mb_suggest', 'mb_weak_steps']);
+});
+
+test('mb_diagnose：一次取简报与分析，合成一段诊断', async () => {
+  const stub = stubFetch({
+    '/api/brief': {
+      window_days: 30,
+      counts: { active: 5, due_today: 2, overdue: 1, graded_with_hints: 4, hint_free_correct: 0.5 },
+      items: [{ id: 12, subject: '高数', knowledge: '极限', question: '求极限', reason: '逾期 2 天' }],
+      weak_points: [{ knowledge: '极限', accuracy: 0.4, mistakes: 3, graded: 5 }],
+      patterns: [{ knowledge: '极限', step: '计算', count: 3 }],
+      note: '先把逾期清掉',
+      sample: { mistakes: 5, reviews: 9, enough: false, need_reviews: 20, note: '样本还少' },
+    },
+    '/api/analytics': {
+      by_step: [{ name: '计算', count: 5 }],
+      sample: { mistakes: 5, reviews: 9, enough: false, need_reviews: 20, note: '样本还少' },
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_diagnose.execute({ days: 30, limit: 3 });
+    assert.match(value.text, /诊断 · 近 30 天/);
+    assert.match(value.text, /在库活跃 5 道 · 今天到期 2 道 · 其中逾期 1 道/);
+    assert.match(value.text, /复习量 9 次/);
+    assert.match(value.text, /零提示做对率 50%（4 次有记录）/);
+    assert.match(value.text, /今天先练/);
+    assert.match(value.text, /为什么：逾期 2 天/);
+    assert.match(value.text, /「极限」正确率 40%/);
+    assert.match(value.text, /第 3 次错在「计算」/);
+    assert.match(value.text, /下一步：先把逾期清掉/);
+    assert.match(value.text, /样本还少/);
+    const paths = stub.calls.map((item) => item.url.replace(CONFIG.url, ''));
+    assert.ok(paths.some((p) => p.indexOf('/api/brief?days=30&limit=3') === 0), 'brief 请求要带 days/limit');
+    assert.ok(paths.some((p) => p.indexOf('/api/analytics?days=30') === 0), 'analytics 请求要带 days');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_diagnose：空库指路，不说「今天没有到期题」（v0.56）', async () => {
+  const stub = stubFetch({
+    '/api/brief': { window_days: 30, counts: { active: 0, due_today: 0 }, items: [], patterns: [], weak_points: [], note: '今天没有到期题。' },
+    '/api/analytics': { by_step: [], sample: { reviews: 0, enough: false, note: '样本还少' } },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_diagnose.execute({});
+    assert.match(value.text, /题库还是空的/);
+    assert.match(value.text, /先录第一道/);
+    assert.doesNotMatch(value.text, /今天没有到期题 —— 想练就自己挑/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_diagnose：没有断点模式时退化成断点分布', async () => {
+  const stub = stubFetch({
+    '/api/brief': { window_days: 7, counts: { active: 1, due_today: 0 }, items: [], patterns: [], weak_points: [] },
+    '/api/analytics': { by_step: [{ name: '审题', count: 1 }, { name: '计算', count: 4 }], sample: { reviews: 2, enough: true } },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_diagnose.execute({});
+    assert.match(value.text, /今天没有到期题/);
+    assert.match(value.text, /断点分布：计算 4 次 · 审题 1 次/);
+    assert.doesNotMatch(value.text, /零提示做对率 0%/);
+  } finally {
+    stub.restore();
+  }
 });
 
 test('mb_review 带 step：请求体里有 step，回执里带上断点', async () => {

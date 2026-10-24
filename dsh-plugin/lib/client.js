@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.55.0';
+const CLIENT_VERSION = '0.56.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     // v0.54：一次把今天这几道交给模型（单题入口那条路由一行没动）
@@ -177,6 +177,8 @@ const CLIENT_VERSION = '0.55.0';
       '.mb-aiduo-side{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--mb-line)}',
       '.mb-aiduo-side>.mb-detail{flex:1 1 auto;min-height:0}',
       '.mb-aiduo-main{display:flex;flex-direction:column;min-width:0;min-height:0}',
+      // v0.56：批量会话的左栏是清单，不需要和右边等宽
+      '.mb-aiduo.batch{grid-template-columns:minmax(0,38%) minmax(0,1fr);flex:1 1 auto;min-height:0}',
       '.mb-split:has(.mb-aiduo){grid-template-columns:minmax(0,1fr)}',
       '.mb-split:has(.mb-aiduo) .mb-left{display:none}',
       '.mb-toolbar{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--mb-line);flex:0 0 auto;flex-wrap:wrap}',
@@ -317,7 +319,7 @@ const CLIENT_VERSION = '0.55.0';
       '.mb ::-webkit-scrollbar{width:10px;height:10px}',
       '.mb ::-webkit-scrollbar-thumb{background:var(--mb-line-strong);border-radius:999px;border:3px solid transparent;background-clip:content-box}',
       '.mb ::-webkit-scrollbar-track{background:transparent}',
-      '@media (max-width:520px){.mb-head{padding:6px 8px 0}.mb-toolbar .mb-seg{display:none}.mb-toolbar{padding:6px 7px}}\n@media (hover:none){.mb-item .mb-rowacts{opacity:1;pointer-events:auto}}\n@media (max-width:760px){.mb-head{padding:8px 10px 0}.mb-split{grid-template-columns:minmax(0,1fr)}.mb-left{border-right:0;border-bottom:1px solid var(--mb-line);max-height:46%}.mb-filters{grid-template-columns:1fr}.mb-row2{grid-template-columns:1fr}.mb-detail{padding:14px 12px 24px}.mb-form{padding:14px 12px 24px}.mb-rate{grid-template-columns:repeat(2,minmax(0,1fr))}.mb-aiduo{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,46%) minmax(0,1fr)}.mb-aiduo-side{border-right:0;border-bottom:1px solid var(--mb-line)}}',
+      '@media (max-width:520px){.mb-head{padding:6px 8px 0}.mb-toolbar .mb-seg{display:none}.mb-toolbar{padding:6px 7px}}\n@media (hover:none){.mb-item .mb-rowacts{opacity:1;pointer-events:auto}}\n@media (max-width:760px){.mb-head{padding:8px 10px 0}.mb-split{grid-template-columns:minmax(0,1fr)}.mb-left{border-right:0;border-bottom:1px solid var(--mb-line);max-height:46%}.mb-filters{grid-template-columns:1fr}.mb-row2{grid-template-columns:1fr}.mb-detail{padding:14px 12px 24px}.mb-form{padding:14px 12px 24px}.mb-rate{grid-template-columns:repeat(2,minmax(0,1fr))}.mb-aiduo{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,46%) minmax(0,1fr)}.mb-aiduo.batch{grid-template-columns:minmax(0,1fr)}.mb-aiduo-side{border-right:0;border-bottom:1px solid var(--mb-line)}}',
       '@media (prefers-reduced-motion:reduce){.mb *,.mb *::before{animation:none!important;transition:none!important}}',
     ].join('');
 
@@ -1052,6 +1054,34 @@ const CLIENT_VERSION = '0.55.0';
         return () => { cancelled = true; };
       }, [id, item && item.review_count]);
 
+      // v0.56：AI 在右边判分后，左边要跟着变。宿主没有「复习记了分」这种事件可订阅，
+      // 只能轻量轮询 —— 但只在两条件下启：AI 面板开着，且真的在浏览器里跑。
+      // 测试沙箱没有 setInterval（vm 上下文里是 undefined），所以不会留下定时器。
+      useEffect(() => {
+        if (!ai || typeof setInterval !== 'function') return undefined;
+        let cancelled = false;
+        let lastCount = null;
+        const tick = () => {
+          data('/api/mistakes/' + id)
+            .then((value) => {
+              if (cancelled || !value) return;
+              // 第一次只记基线，不算「变了」—— 否则一开会话就白刷一次列表
+              const changed = lastCount !== null && value.review_count !== lastCount;
+              lastCount = value.review_count;
+              // 值没变就返回旧对象，避免每 2.5 秒重渲染一次整棵详情
+              setItem((old) => (old
+                && old.review_count === value.review_count
+                && old.status === value.status
+                && old.suspended === value.suspended
+                && old.due === value.due ? old : value));
+              if (changed && onChanged) onChanged();
+            })
+            .catch(() => { /* 轮询失败不打扰：下一轮还会再试 */ });
+        };
+        const timer = setInterval(tick, 2500);
+        return () => { cancelled = true; clearInterval(timer); };
+      }, [id, ai]);
+
       const rate = async (result) => {
         if (busy) return;
         setBusy(true);
@@ -1455,8 +1485,39 @@ const CLIENT_VERSION = '0.55.0';
     // 学习/计划/分析页的「去练」把筛选条件暂存在这里，切到错题页时 ListTab 挂载即取走
     let pendingListFilter = null;
 
+    // v0.56：空库不是「没有数据」，是「还没开始」。原来只有一句「还没有错题」，
+    // 新用户不知道该先干什么 —— 给一条三步路径，按钮直接打开新建表单。
+    function EmptyGuide(props) {
+      const onCreate = props && props.onCreate;
+      const steps = [
+        ['录第一道', '题干必填，答案、错因、知识点都可以后补 —— 先把题存下来。'],
+        ['有截图就直接粘', '在新建表单里 Ctrl+V 贴图（≤2MB）；也可以把图片交给 AI，让它用 mb_add 帮你录。'],
+        ['交给 AI 带你练', '录完几道后到「计划」页点「让 AI 带我练今天」，它按到期和薄弱点排顺序。'],
+      ];
+      return h('div.mb-empty', null,
+        h('div', { style: { fontWeight: '600', marginBottom: '8px' } }, '题库还是空的，先做这三步'),
+        h('ol', { style: { margin: '0 0 10px 18px', padding: '0', lineHeight: '1.7', textAlign: 'left' } },
+          steps.map((pair, index) => h('li', { key: String(index) },
+            h('b', null, pair[0]), ' —— ' + pair[1]))),
+        onCreate ? h('button.mb-btn.primary', { type: 'button', onClick: onCreate }, '＋ 录第一道') : null);
+    }
+
+    // v0.56：批量会话的左栏。v0.54 里「让 AI 带我练今天」会整块顶掉内容区，
+    // 学生一进会话就看不见自己要练哪几道 —— 现在左边留一份清单，右边是会话。
+    function BatchSide(props) {
+      const rows = (props && props.rows) || [];
+      return h('div.mb-aiduo-side', null,
+        h('div.mb-detail', null,
+          h('div.mb-card', null,
+            h('div.mb-cardhead', null, '这次要练的 ' + rows.length + ' 道'),
+            rows.map((row) => h('div.mb-hrow', { key: String(row.id) },
+              h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(row, 60) }),
+              row.subject ? h('span.mb-badge', null, row.subject) : null,
+              row.reason ? h('span.mb-meta', { style: { flex: '0 0 auto' } }, row.reason) : null)))));
+    }
+
     function ListTab(props) {
-      const { meta, onOpen, pickedId, onStats, reloadKey, initialScope } = props;
+      const { meta, onOpen, pickedId, onStats, reloadKey, initialScope, onCreate } = props;
       const [filters, setFilters] = useState(() => {
         const base = {
           q: '', subject: '', status: '', mistake_type: '', range: '', knowledge: '', tag: '',
@@ -1786,7 +1847,11 @@ const CLIENT_VERSION = '0.55.0';
                     h('div', { style: { marginTop: '6px' } }, '是不是要找「' + suggestion + '」？'),
                     h('button.mb-btn.mini', { type: 'button', style: { marginTop: '8px' }, onClick: () => patch({ q: suggestion }) },
                       '按「' + suggestion + '」再搜'))
-                  : (filters.due ? '今天没有到期的错题' : '还没有错题')) :
+                  : filters.due ? '今天没有到期的错题'
+                    : (qText || filters.subject || filters.status || filters.mistake_type
+                      || filters.range || filters.knowledge || filters.tag || filters.unclassified
+                      ? '还没有错题'
+                      : h(EmptyGuide, { onCreate }))) :
                 items.map(row)),
 
         h('div.mb-pager', null,
@@ -2437,13 +2502,13 @@ const CLIENT_VERSION = '0.55.0';
               h('div.mb-cardhead', null,
                 '今日建议',
                 onStartAi && brief.items && brief.items.length
-                  ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(brief.items.map((row) => row.id), brief.items.reduce((acc, row) => { if (row.reason) acc[row.id] = row.reason; return acc; }, {})) }, '让 AI 带我练')
+                  ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(brief.items.map((row) => row.id), brief.items.reduce((acc, row) => { if (row.reason) acc[row.id] = row.reason; return acc; }, {}), brief.items) }, '让 AI 带我练')
                   : null),
               brief.note ? h('div.mb-note', null, brief.note) : null,
               (brief.items || []).slice(0, 3).map((item) => h('button.mb-hrow.pickable', {
                 key: item.id, type: 'button', title: '让 AI 带我从这道开始',
                 onClick: () => {
-                  if (onStartAi) onStartAi([item.id], item.reason ? { [item.id]: item.reason } : null);
+                  if (onStartAi) onStartAi([item.id], item.reason ? { [item.id]: item.reason } : null, [item]);
                   else if (onOpen) onOpen(item.id);
                 },
               },
@@ -2464,7 +2529,7 @@ const CLIENT_VERSION = '0.55.0';
           ? h('div.mb-card', null,
               h('div.mb-cardhead', null,
                 '今天 · ' + today.count + ' 道',
-                onStartAi ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(today.items.map((row) => row.id), null) }, '让 AI 带我练今天') : null),
+                onStartAi ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(today.items.map((row) => row.id), null, today.items) }, '让 AI 带我练今天') : null),
               today.items.map((item) => h('button.mb-hrow.pickable', {
                 key: item.id, type: 'button', title: onOpen ? '在「错题」页打开这道题' : '',
                 onClick: () => { if (onOpen) onOpen(item.id); },
@@ -2940,22 +3005,26 @@ const CLIENT_VERSION = '0.55.0';
       }, []);
 
       // v0.54：把「今天这几道」交给模型。走单独一条路由，单题入口不受影响。
-      const startAiBatch = useCallback(async (ids, notes) => {
+      const startAiBatch = useCallback(async (ids, notes, items) => {
         const list = (Array.isArray(ids) ? ids : []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0);
         if (!list.length) return;
-        setAiSession({ busy: true });
+        // v0.56：把「要练哪几道」一并记下来 —— 会话里左栏要显示这份清单
+        const rows = (Array.isArray(items) ? items : [])
+          .filter((row) => row && Number(row.id) > 0)
+          .map((row) => ({ id: Number(row.id), question: row.question || '', subject: row.subject || '', reason: row.reason || '' }));
+        setAiSession({ busy: true, items: rows });
         try {
           const view = await api(SESSION_BATCH_ENDPOINT, {
             method: 'POST',
             body: JSON.stringify({ ids: list, notes: notes || {} }),
           });
           if (!view || !view.ok) {
-            setAiSession({ error: (view && view.error && view.error.message) || '建会话失败' });
+            setAiSession({ error: (view && view.error && view.error.message) || '建会话失败', items: rows });
             return;
           }
-          setAiSession({ sessionId: view.sessionId, title: view.title });
+          setAiSession({ sessionId: view.sessionId, title: view.title, items: rows });
         } catch (failure) {
-          setAiSession({ error: errText(failure) });
+          setAiSession({ error: errText(failure), items: rows });
         }
       }, []);
 
@@ -2987,6 +3056,17 @@ const CLIENT_VERSION = '0.55.0';
         (typeof localStorage === 'undefined' || localStorage.getItem(REMIND_KEY) !== String(remind.now || '').slice(0, 10));
 
       // v0.54：批量会话占满内容区；页签还在，切走就结束。
+      // v0.56：改成左右分栏 —— 左边留着「这次要练的 N 道」，右边才是会话。
+      // v0.54 那版一整块顶掉内容区，学生一进会话就看不见自己要练什么。
+      const aiRows = aiSession && Array.isArray(aiSession.items) ? aiSession.items : [];
+      const aiPane = aiSession && aiSession.sessionId
+        ? h(AiPane, {
+            SessionProvider, renderFactorySlot,
+            sessionId: aiSession.sessionId, title: aiSession.title,
+            backLabel: '← 返回计划',
+            onBack: () => setAiSession(null),
+          })
+        : null;
       const aiBody = !aiSession ? null
         : aiSession.error
           ? h('div.mb-ai', null,
@@ -2996,12 +3076,11 @@ const CLIENT_VERSION = '0.55.0';
               h('div.mb-empty', null, aiSession.error))
           : aiSession.busy
             ? h('div.mb-ai', null, h('div.mb-empty', null, '正在建会话…'))
-            : h(AiPane, {
-                SessionProvider, renderFactorySlot,
-                sessionId: aiSession.sessionId, title: aiSession.title,
-                backLabel: '← 返回计划',
-                onBack: () => setAiSession(null),
-              });
+            : aiRows.length
+              ? h('div.mb-aiduo.batch', null,
+                  h(BatchSide, { rows: aiRows }),
+                  h('div.mb-aiduo-main', null, aiPane))
+              : aiPane;
 
       return h('div.mb', null,
         h('header.mb-head', null,
@@ -3027,7 +3106,10 @@ const CLIENT_VERSION = '0.55.0';
 
         aiBody ? aiBody :
           tab === 'list' ? h('div.mb-split', null,
-          h(ListTab, { meta, onOpen: open, pickedId: detailId, onStats: setStats, reloadKey, initialScope: 'all' }),
+          h(ListTab, {
+            meta, onOpen: open, pickedId: detailId, onStats: setStats, reloadKey, initialScope: 'all',
+            onCreate: () => { setCreating(true); setDetailId(0); },
+          }),
           h('div.mb-right', null,
             creating ? h('div.mb-detail.mb-page', null,
               h('div.mb-toolbar', { style: { padding: '0 0 10px', borderBottom: '0' } },
@@ -3080,7 +3162,7 @@ const CLIENT_VERSION = '0.55.0';
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog, VocabDialog, CLIENT_VERSION,
         LAST_VALUES,
-        Dropdown, isLightColor, MathText, VocabPanel,
+        Dropdown, isLightColor, MathText, VocabPanel, EmptyGuide, BatchSide,
         setPendingListFilter: (patch) => { pendingListFilter = patch; },
       },
     };
