@@ -26,7 +26,7 @@ import sys
 import app
 
 # 会写库的命令：--read-only 时一律拒绝
-WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore", "merge", "meta-merge")
+WRITE_COMMANDS = ("add", "review", "import", "suspend", "restore", "merge", "meta-merge", "gc")
 
 BRIEF_FIELDS = ("question", "answer", "my_answer", "error_reason")
 BRIEF_CHARS = 160
@@ -259,6 +259,11 @@ def cmd_export(args, conn) -> dict:
     return app.export_all(conn)
 
 
+def cmd_gc(args, conn) -> dict:
+    """清理没人引用的图片文件。默认只报数，--apply 才真删。"""
+    return app.gc_images(conn, args.db, dry=not args.apply)
+
+
 def cmd_backup(args, conn) -> dict:
     return app.backup_db(args.db, backup_dir=args.dir or "", keep=args.keep)
 
@@ -468,6 +473,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export", help="导出全量 JSON 备份")
     p.add_argument("--out", default="")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("gc", help="清理 data/images 里没人引用的图片文件（默认只报数）")
+    p.add_argument("--apply", action="store_true", help="真的删；不加只做 dry-run 报数")
+    p.set_defaults(func=cmd_gc)
 
     p = sub.add_parser("backup", help="备份数据库快照到 backups/（默认保留最近 14 份）")
     p.add_argument("--dir", default="", help="备份目录（默认数据库旁边的 backups/）")

@@ -2080,6 +2080,62 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(logs[0]["judgement"], "第二步符号错")
         self.assertEqual(logs[0]["step"], "计算")
 
+    def test_gc_images_dry_run_changes_nothing(self):
+        # v0.53：图片文件只增不减。GC 默认 dry —— 删文件不可逆，先只报数。
+        item = self.create(question="占着一张图", image_data=PNG_A)
+        stray = os.path.join(app.image_dir(self.db), "stray-orphan.png")
+        os.makedirs(os.path.dirname(stray), exist_ok=True)
+        with open(stray, "wb") as fh:
+            fh.write(b"orphan-bytes")
+
+        status, body = self.call("POST", "/api/maintenance/gc", {})
+        self.assertEqual(status, 200, body)
+        report = body["data"]
+        self.assertTrue(report["dry"])
+        self.assertEqual(report["orphans"], 1)
+        self.assertEqual(report["removed"], 0)
+        self.assertEqual(report["on_disk"], 2)
+        self.assertIn("stray-orphan.png", report["samples"])
+        self.assertTrue(os.path.exists(stray), "dry-run 不能删文件")
+        self.assertTrue(item["images"][0]["file"])
+
+    def test_gc_images_apply_removes_only_orphans(self):
+        item = self.create(question="有图的题", image_data=PNG_B)
+        keep = item["images"][0]["file"]
+        directory = app.image_dir(self.db)
+        stray = os.path.join(directory, "nobody-uses-me.png")
+        with open(stray, "wb") as fh:
+            fh.write(b"x" * 32)
+
+        status, body = self.call("POST", "/api/maintenance/gc", {"dry": False})
+        self.assertEqual(status, 200, body)
+        report = body["data"]
+        self.assertFalse(report["dry"])
+        self.assertEqual(report["removed"], 1)
+        self.assertGreaterEqual(report["freed_bytes"], 32)
+        self.assertFalse(os.path.exists(stray))
+        self.assertTrue(os.path.exists(os.path.join(directory, keep)), "在用的图不能删")
+
+    def test_gc_images_keeps_files_referenced_by_trash(self):
+        # 删题时 mistake_images 行被清了，但回收站快照还指着文件；GC 漏掉这一处就会丢图，
+        # 恢复出来的题就是空图。
+        item = self.create(question="删了但要能恢复", image_data=PNG_C)
+        mid = item["id"]
+        name = item["images"][0]["file"]
+        status, body = self.call("DELETE", "/api/mistakes/%d" % mid)
+        self.assertEqual(status, 200, body)
+
+        status, body = self.call("POST", "/api/maintenance/gc", {"dry": False})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["data"]["removed"], 0, "回收站还引用着，不该被当成孤儿")
+        self.assertTrue(os.path.exists(os.path.join(app.image_dir(self.db), name)))
+
+        _, body = self.call("GET", "/api/trash")
+        entry = body["data"]["items"][0]
+        status, body = self.call("POST", "/api/trash/%d/restore" % entry["id"])
+        self.assertEqual(status, 200, body)
+        self.assertEqual([i["file"] for i in body["data"]["images"]], [name])
+
     def test_batch_delete_returns_real_count(self):
         a = self.create(question="批删 A")["id"]
         b = self.create(question="批删 B")["id"]

@@ -383,6 +383,7 @@ test('更多菜单：展开后带 mb-pop 配色与定位，点外部能收起', 
   const text = textOf(menu).join('|');
   assert.match(text, /批量导入/);
   assert.match(text, /词表整理/);
+  assert.match(text, /清理图片/);
   assert.match(text, /导出 CSV/);
   assert.match(text, /备份 JSON/);
 });

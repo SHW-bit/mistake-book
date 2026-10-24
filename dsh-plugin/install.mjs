@@ -22,9 +22,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const PKG_NAME = 'dsh-mistake-book';
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+// v0.53：不能用 new URL().pathname —— 它不解码 %20 与中文，仓库放在
+// 「D:\我的项目\mistake-book」这种路径下会算出 %E6%88%91... 然后 ENOENT。
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const COPY_DIRS = ['lib', 'skills'];
 const COPY_FILES = ['package.json', 'cordis.patch.yml', 'icon.png', 'README.md', 'LICENSE'];

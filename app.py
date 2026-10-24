@@ -291,6 +291,11 @@ MIGRATIONS = (
 )
 
 
+# v0.53：--quiet / MISTAKE_BOOK_QUIET=1 关掉访问日志。http.server 默认每个请求刷一行，
+# 面板里每点开一道题都会打一行 /preview，噪音盖住真正的错误。
+QUIET = bool(os.environ.get("MISTAKE_BOOK_QUIET"))
+
+
 class ValidationError(Exception):
     """请求数据不合法 -> 400"""
 
@@ -3315,6 +3320,11 @@ def _paper_html(paper: dict, query: dict) -> str:
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = "MistakeBook/1.3"
 
+    def log_message(self, fmt, *args):
+        if QUIET:
+            return
+        super().log_message(fmt, *args)
+
     # -- 基础输出 --
     def _json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -3526,6 +3536,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path == "/api/export.json" and method == "GET":
                 return self._stream("application/json; charset=utf-8",
                                     iter_export(conn), "mistakes-backup.json")
+            if path == "/api/maintenance/gc" and method == "POST":
+                body = self._read_json()
+                # 默认 dry：不带 dry 或 dry 为真都只报数，必须显式 {"dry": false} 才删文件
+                dry = body.get("dry", True)
+                return self._json(200, {"ok": True, "data": gc_images(
+                    conn, self.server.db_path, dry=bool(dry))})
             if path == "/api/asset" and method == "GET":
                 return self._asset(one(params, "path"))
             match = re.fullmatch(r"/api/images/([^/]+)", path)
@@ -3763,6 +3779,72 @@ def _sync_images(src_dir: str, dst_dir: str) -> int:
     return copied
 
 
+def gc_images(conn: sqlite3.Connection, db_path: str = "", dry: bool = True) -> dict:
+    """清理 data/images 里没有任何引用的图片文件。
+
+    引用来源有三处，漏一处就会把还要用的图删掉：
+      1. mistake_images.file —— 一道题的图列表
+      2. mistakes.image_file —— 第一张图的冗余列（缩略图 / 打印 / 导出读它）
+      3. trash.images —— 回收站快照；删题时关联行已经删了，但恢复要靠这些文件
+
+    默认 dry=True 只报数不删：删文件不可逆，而且判断逻辑一旦有漏洞就是永久丢数据。
+    """
+    directory = image_dir(db_path)
+    referenced = set()
+    for row in conn.execute("SELECT file FROM mistake_images WHERE file <> ''"):
+        referenced.add(str(row["file"]))
+    for row in conn.execute("SELECT image_file FROM mistakes WHERE image_file <> ''"):
+        referenced.add(str(row["image_file"]))
+    for row in conn.execute("SELECT images FROM trash"):
+        try:
+            entries = json.loads(row["images"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("file"):
+                referenced.add(str(entry["file"]))
+
+    try:
+        names = [name for name in os.listdir(directory)
+                 if os.path.isfile(os.path.join(directory, name))]
+    except OSError:
+        names = []
+
+    orphans = sorted(name for name in names if name not in referenced)
+    freed = 0
+    for name in orphans:
+        try:
+            freed += os.path.getsize(os.path.join(directory, name))
+        except OSError:
+            pass
+
+    removed = 0
+    freed_removed = 0
+    if not dry:
+        for name in orphans:
+            path = os.path.join(directory, name)
+            try:
+                size = os.path.getsize(path)
+                os.remove(path)
+            except OSError:
+                continue
+            removed += 1
+            freed_removed += size
+
+    return {
+        "dry": bool(dry),
+        "dir": os.path.abspath(directory),
+        "on_disk": len(names),
+        "referenced": len(referenced),
+        "orphans": len(orphans),
+        "removed": removed,
+        "freed_bytes": freed if dry else freed_removed,
+        "samples": orphans[:10],
+    }
+
+
 def backup_db(db_path: str = DB_PATH, backup_dir: str = "", keep: int = BACKUP_KEEP) -> dict:
     """用 sqlite3 自带的在线备份 API 复制一份快照。
 
@@ -3888,7 +3970,12 @@ def main(argv=None) -> int:
     parser.add_argument("--db", default=DB_PATH)
     parser.add_argument("--no-backup", dest="no_backup", action="store_true",
                         help="启动时不做自动备份")
+    parser.add_argument("--quiet", action="store_true",
+                        help="不打印每个请求的访问日志（也可用环境变量 MISTAKE_BOOK_QUIET=1）")
     args = parser.parse_args(argv)
+
+    global QUIET
+    QUIET = QUIET or bool(args.quiet)
 
     had_db = os.path.exists(args.db)
     init_db(args.db)

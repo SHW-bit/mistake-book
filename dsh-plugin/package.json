@@ -1,6 +1,6 @@
 {
   "name": "dsh-mistake-book",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "type": "module",
   "description": "错题本 DSH 插件：13 个模型工具（复习 / 检索 / 录入 / 判分 / 统计 / 断点 / 事件 / 批量导入 / 组卷 / 周报 / 知识库整理）+ 两条预设 + 侧栏面板（六页签）",
   "icon": "./icon.png",

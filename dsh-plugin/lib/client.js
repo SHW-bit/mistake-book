@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.52.0';
+const CLIENT_VERSION = '0.53.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -1366,6 +1366,14 @@ const CLIENT_VERSION = '0.52.0';
       return pad + facet.name + (facet.count ? '（' + facet.count + '）' : '');
     }
 
+    // v0.53：图片清理的提示里要说「能释放多少」，字节数人读不了
+    function fmtSize(bytes) {
+      const value = Number(bytes) || 0;
+      if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MB';
+      if (value >= 1024) return Math.round(value / 1024) + ' KB';
+      return value + ' B';
+    }
+
     // v0.43：录入时挡住「新造同义值」—— 跟已有名字只差一两个字就提示改用已有的。
     // 只比较长度 ≤12 的短名，长文本（比如一整句错因描述）不参与，免得白算。
     function editDistance(a, b, limit) {
@@ -1501,6 +1509,38 @@ const CLIENT_VERSION = '0.52.0';
 
       const pages = Math.max(1, Math.ceil(total / filters.pageSize));
 
+      // v0.53：搜不到时给个近似词。知识点带层级（函数/单调性），用户常敲成「函数单调性」，
+      // 只差一个分隔符，editDistance 正好是 1 —— 否则用户只会看到「还没有错题」。
+      const searchNames = knowledgeFacets(meta).map((facet) => facet.path)
+        .concat((meta && meta.subjects) || [])
+        .concat(((meta && meta.tag_facets) || []).map((item) => item.name))
+        .concat((meta && meta.knowledge_flat) || []);
+      const qText = String(filters.q || '').trim();
+      const suggestion = (!items.length && !loading && qText && !filters.due)
+        ? nearName(qText, searchNames) : '';
+
+      // v0.53：图片 GC 两步走 —— 先 dry 问「有多少没人用」，用户点了才真删
+      const checkGc = async () => {
+        try {
+          const report = await data('/api/maintenance/gc', { method: 'POST', body: JSON.stringify({ dry: true }) });
+          if (!report.orphans) {
+            setNotice({ text: '没有需要清理的图片：共 ' + report.on_disk + ' 张，全部还在用。' });
+          } else {
+            setNotice({
+              text: '发现 ' + report.orphans + ' 张没人引用的图片（共 ' + report.on_disk
+                + ' 张，可释放 ' + fmtSize(report.freed_bytes) + '）。',
+              canGc: true,
+            });
+          }
+        } catch (failure) { setError(errText(failure)); }
+      };
+      const runGc = async () => {
+        try {
+          const report = await data('/api/maintenance/gc', { method: 'POST', body: JSON.stringify({ dry: false }) });
+          setNotice({ text: '已清理 ' + report.removed + ' 张图片，释放 ' + fmtSize(report.freed_bytes) + '。' });
+        } catch (failure) { setError(errText(failure)); }
+      };
+
       const chips = [];
       if (filters.subject) chips.push(['subject', '学科：' + filters.subject]);
       if (filters.status) chips.push(['status', '状态：' + (filters.status === 'new' ? '未复习' : filters.status === 'reviewing' ? '复习中' : '已掌握')]);
@@ -1617,6 +1657,7 @@ const CLIENT_VERSION = '0.52.0';
             },
               h('button.mb-btn', { type: 'button', onClick: () => { setImportOpen(true); setMoreOpen(false); } }, '批量导入'),
               h('button.mb-btn', { type: 'button', onClick: () => { setVocabOpen(true); setMoreOpen(false); } }, '词表整理'),
+              h('button.mb-btn', { type: 'button', onClick: () => { setMoreOpen(false); void checkGc(); } }, '清理图片'),
               h('a.mb-btn', { href: rawUrl('/api/export.csv'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '导出 CSV'),
               h('a.mb-btn', { href: rawUrl('/api/export.json'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '备份 JSON')) : null)),
 
@@ -1689,12 +1730,20 @@ const CLIENT_VERSION = '0.52.0';
           h('span', { style: { flex: '1 1 auto' } }, notice.text),
           notice.canView ? h('button.mb-btn.mini', { type: 'button', onClick: () => { setNotice(null); patch({ suspended: true }); } }, '查看已斩题') : null,
           notice.canUndo ? h('button.mb-btn.mini', { type: 'button', onClick: () => void undo(notice.id) }, '撤销') : null,
+          notice.canGc ? h('button.mb-btn.mini', { type: 'button', onClick: () => void runGc() }, '删掉它们') : null,
           h('button.mb-btn.mini', { type: 'button', onClick: () => setNotice(null) }, '知道了')) : null,
 
         h('div.mb-list', null,
           loading && !items.length ? h('div.mb-empty', null, '加载中…') :
             error ? h('div.mb-empty', null, error) :
-              !items.length ? h('div.mb-empty', null, filters.due ? '今天没有到期的错题' : '还没有错题') :
+              !items.length ? h('div.mb-empty', null,
+                suggestion
+                  ? h('div', null,
+                    h('div', null, '没有匹配「' + qText + '」的错题'),
+                    h('div', { style: { marginTop: '6px' } }, '是不是要找「' + suggestion + '」？'),
+                    h('button.mb-btn.mini', { type: 'button', style: { marginTop: '8px' }, onClick: () => patch({ q: suggestion }) },
+                      '按「' + suggestion + '」再搜'))
+                  : (filters.due ? '今天没有到期的错题' : '还没有错题')) :
                 items.map(row)),
 
         h('div.mb-pager', null,

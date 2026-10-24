@@ -44,6 +44,7 @@
 | POST | `/api/trash/{id}/restore` | 从回收站恢复；原 id 空闲则沿用，被占用则分配新 id 并重映射复习日志 |
 | DELETE | `/api/trash/{id}` | 彻底删除一条回收站记录 |
 | POST | `/api/trash/purge` | 清空回收站 |
+| POST | `/api/maintenance/gc` | 清理 `data/images/` 里没人引用的图片文件；body `{"dry": false}` 才真删，默认 dry 只报数。返回 `dry/dir/on_disk/referenced/orphans/removed/freed_bytes/samples` |
 | POST | `/api/mistakes/{id}/suspend` | 斩题：移出复习池（`suspended=1`），不删数据、不参与排期与掌握度 |
 | POST | `/api/mistakes/{id}/resume` | 恢复被斩的题 |
 | GET | `/api/paper?count=&order=&mode=&images=&meta=&blank=&title=&seed=&analysis=` | 组卷数据（JSON）：复用列表筛选参数；`order` 取 `weak/random/recent/oldest`，`mode` 取 `question/answer/split`，上限 100 题 |
