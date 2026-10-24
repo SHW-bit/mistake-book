@@ -125,12 +125,10 @@ function nodesOf(node, tag, out = []) {
 
 const META = {
   subjects: ['高数'], knowledge: ['极限'], mistake_types: ['概念不清'], sources: ['作业'],
-  // v0.43：来源改成活词表 —— facets 带题量与 system 标记，sources 只含用过的值
+  // v0.48：来源 facets 只有库里真用过的值 —— 内置列表已删除，不再有 count=0 的幽灵项
   source_facets: [
-    { name: '作业', count: 3, system: true },
-    { name: '自编卷', count: 1, system: false },
-    { name: '模拟考', count: 0, system: true },
-    { name: '其他', count: 0, system: true },
+    { name: '作业', count: 3 },
+    { name: '自编卷', count: 1 },
   ],
   subject_facets: [{ name: '高数', count: 3 }],
   tag_facets: [{ name: '极限', count: 2 }],
@@ -257,7 +255,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.47/);
+  assert.match(text, /v0\.48/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -505,8 +503,8 @@ test('新建表单：字段齐全，保存与取消都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-form/);
 });
 
-// v0.43：来源候选来自活词表 —— 只列库里用过的值并带题量，0 题的内置值退到 placeholder
-test('录入表单：来源下拉只列用过的值并带题量，未使用的退到 placeholder', () => {
+// v0.43/v0.48：来源候选只有活词表 —— 只列库里用过的值并带题量，内置列表已删除
+test('录入表单：来源下拉只列用过的值并带题量，没有内置兜底', () => {
   const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
     knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
   const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
@@ -517,11 +515,13 @@ test('录入表单：来源下拉只列用过的值并带题量，未使用的�
   const options = list.children.flat(3).filter(Boolean);
   const values = options.map((node) => node.props.value);
   const labels = options.map((node) => node.props.label);
-  assert.deepEqual(values, ['作业', '自编卷'], '0 题的内置值不该进候选');
+  assert.deepEqual(values, ['作业', '自编卷'], '候选只来自库里用过的值');
   assert.deepEqual(labels, ['作业 · 3 题', '自编卷 · 1 题'], '候选要带题量');
   const input = nodesOf(dom, 'input').find((node) => node.props.list === 'mb-dl-source');
   assert.ok(input, '缺少来源输入框');
-  assert.match(input.props.placeholder, /模拟考/, '未使用的内置值要退到 placeholder 当示例');
+  // v0.48：内置列表删了，placeholder 只是个写法示例，不再从「未使用的内置值」里拼
+  assert.match(input.props.placeholder, /如：期中/);
+  assert.doesNotMatch(input.props.placeholder, /模拟考/, '不该再拿内置值当示例');
 });
 
 // v0.44：知识点下拉按层级缩进并带题量 —— 填进输入框的仍然是完整路径，不是缩进后的显示名。
@@ -593,19 +593,20 @@ test('词表整理：从「管理」进来时直接落在对应档位（v0.45）
 });
 
 // VocabPanel 的 hooks 顺序：kind, meta, picked, target, editing, editValue, busy, note, error, version, query, pending
-test('词表整理：按档位列出值与题量，未使用的与内置的都标出来（v0.43）', () => {
+test('词表整理：按档位列出值与题量，来源只有真用过的值（v0.48）', () => {
   const seed = ['source', META, [], '', '', '', false, '', '', 0, '', null];
   const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({}));
   const text = textOf(dom).join('|');
-  assert.match(text, /来源（4）/);
+  assert.match(text, /来源（2）/);
   assert.match(text, /学科（1）/);
   assert.match(text, /知识点（1）/);
   assert.match(text, /标签（1）/);
   assert.match(text, /3 题/, '候选要带题量');
-  assert.match(text, /未使用/, '0 题的值要标未使用');
-  assert.match(text, /内置/, '内置值要标出来');
-  assert.equal(nodesOf(dom, 'input').filter((node) => node.props.type === 'checkbox').length, 4,
-    '四个来源值各一个勾选框');
+  // v0.48：内置来源已删除，不该再有「未使用」与「内置」标记，也没有删不掉的幽灵行
+  assert.doesNotMatch(text, /未使用/);
+  assert.doesNotMatch(text, /内置/);
+  assert.equal(nodesOf(dom, 'input').filter((node) => node.props.type === 'checkbox').length, 2,
+    '两个来源值各一个勾选框');
   assert.match(text, /清空勾选的 0 项/, '没勾选时按钮说明当前动作');
 });
 

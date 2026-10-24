@@ -194,7 +194,7 @@
 |---|---|---|
 | 复习历史表 | `ReviewSchedule(errorItemId, scheduledFor, completedAt, isCorrect)` | `review_logs`（[app.py](../app.py)） |
 | 结构化错因 | `mistakeStatus` 枚举（不会做/做错了/未判断） | `mistake_type` 枚举（[app.py](../app.py)） |
-| 题目来源 | `ErrorItem.source` | `source` + `SOURCE_HINTS`（[app.py](../app.py)） |
+| 题目来源 | `ErrorItem.source` | `source` + `_field_facets()`（[app.py](../app.py)；v0.48 起不再有 `SOURCE_HINTS` 常量） |
 | 时间范围筛选 | `timeRange=week\|month\|all` | `range=week\|month`（[app.py](../app.py)） |
 | 批量删除 | `/api/error-items/batch-delete` | `/api/mistakes/batch-delete`（[app.py](../app.py)） |
 | 全量 JSON 备份 | `/api/export?all=true` | `/api/export.json`（[app.py](../app.py)） |
@@ -241,12 +241,12 @@
 
 ### 活词表：候选来自数据，不来自常量（v0.43）
 
-**问题**：`SOURCE_HINTS` 这 8 个内置来源每次都被 `meta()` 并回候选，删不掉；库里还有 `4` 这类脏值；四个自由文本字段（学科 / 知识点 / 标签 / 来源）在面板里全是裸 datalist，能写不能管。
+**问题**：`SOURCE_HINTS` 这 8 个内置来源每次都被 `meta()` 并回候选，删不掉（**v0.48 已把这个常量整个删除**，见 5.45 节）；库里还有 `4` 这类脏值；四个自由文本字段（学科 / 知识点 / 标签 / 来源）在面板里全是裸 datalist，能写不能管。
 
 **决定**：把「候选」与「示例」分开。
 
 - 候选 = `_field_facets()` 的产物，只含 `count > 0` 的值，按「题量 → 最近用过 → 名字」三次稳定排序；
-- 示例 = 0 题的内置值，只出现在 placeholder 与管理面板的「未使用」分组里；
+- 示例 = 0 题的内置值，只出现在 placeholder 与管理面板的「未使用」分组里（**v0.48 起改为固定 placeholder 文案，不再有 0 题项**）；
 - 治理 = `merge_meta(kind=source)` 与 `merge_knowledge()`，合并优先于删除，`target` 留空才是清空；
 - 引导 = 录入时编辑距离 ≤1 的近似值给一句「已有『X』」，**只提示不自动改**（自动改会吃掉「期中考（区统考）」这类真·不同值）。
 

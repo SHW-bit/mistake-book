@@ -57,9 +57,9 @@ MISTAKE_TYPES = ("概念不清", "计算失误", "审题错误", "方法不会",
 # 结构化断点（v0.22）：这次错在解题流程的哪一步。用枚举而不是自由文本，
 # 否则「计算错了」「算错」「计算失误」会碎成三堆，易错模式就聚合不出来了。
 REVIEW_STEPS = ("审题", "建模", "计算", "检验", "表达", "记忆")
-# v0.43：这 8 个不再是「下拉候选」，只是内置示例 —— 候选改由库里的真实值生成
-# （见 _field_facets 的 source 分支），0 题的内置值不再占位。
-SOURCE_HINTS = ("作业", "练习册", "周测", "月考", "期中", "期末", "模拟考", "其他")
+# v0.48：内置来源列表已删除。v0.43 起候选就只来自库里真用过的值，但这 8 个一直
+# 被并进 source_facets（count=0、system=True），在管理面板里既占地方又永远清不掉 ——
+# 用户反馈「内置没啥用」。现在来源候选完全由数据生成，删了就真没了。
 # 复习评分 -> FSRS rating（1=again 2=hard 3=good 4=easy）
 RESULT_RATINGS = {"again": 1, "hard": 2, "good": 3, "easy": 4}
 DEDUP_WINDOW_SEC = 3                       # 防双击重复提交
@@ -1548,9 +1548,8 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
             "WHERE subject <> '' GROUP BY subject ORDER BY n DESC, subject").fetchall()
         return [{"name": r[0], "count": r[1]} for r in rows]
     if kind == "source":
-        # v0.43：来源走「活词表」。用过的值按题量降序在前；内置值即使 0 题也保留，
-        # 但带 system=True 且 count=0 —— 前端只把 count>0 的放进输入候选，
-        # 管理面板才把 0 题的列进「未使用」分组。数据一个都不删。
+        # v0.48：来源走「活词表」，且**只有活词表** —— 候选完全由库里的真实值生成，
+        # 不再有内置值兜底。用过的值按题量降序：题量多的在前 → 最近用过的在前 → 名字。
         counts, last_used = {}, {}
         for raw, total, stamp in conn.execute(
                 "SELECT source, COUNT(*), MAX(updated_at) FROM mistakes "
@@ -1559,16 +1558,11 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
             if name:
                 counts[name] = counts.get(name, 0) + total
                 last_used[name] = stamp or ""
-        # 排序：题量多的在前 → 最近用过的在前 → 名字（稳定排序，逐级细化）
         names = list(counts)
         names.sort()
         names.sort(key=lambda x: last_used.get(x) or "", reverse=True)
         names.sort(key=lambda x: -counts[x])
-        used = [{"name": k, "count": counts[k], "system": k in SOURCE_HINTS}
-                for k in names]
-        unused = [{"name": h, "count": 0, "system": True}
-                  for h in SOURCE_HINTS if h not in counts]
-        return used + unused
+        return [{"name": k, "count": counts[k]} for k in names]
     if kind == "tag":
         counts = {}
         for (raw,) in conn.execute("SELECT tags FROM mistakes WHERE tags <> ''"):
@@ -2685,10 +2679,9 @@ def meta(conn: sqlite3.Connection) -> dict:
     subjects = [f["name"] for f in subject_facets]
     tags = [f["name"] for f in tag_facets]
     facets = knowledge_facets(conn)
-    # v0.43：来源改成活词表 —— source_facets 带 count 与 system 标记；
-    # sources 只回「用过的值」，0 题的内置候选不再占位（但仍在 facets 里，供管理面板用）。
+    # v0.48：来源候选只有活词表 —— source_facets 全部 count>0，sources 就是它的名字列。
     source_facets = _field_facets(conn, "source")
-    sources = [f["name"] for f in source_facets if f["count"] > 0]
+    sources = [f["name"] for f in source_facets]
     return {"subjects": subjects, "tags": tags,
             "subject_facets": subject_facets, "tag_facets": tag_facets,
             # v0.34：knowledge 从「字符串数组」升级成带 count/depth/parent 的 facets；

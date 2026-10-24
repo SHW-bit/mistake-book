@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.47.0';
+const CLIENT_VERSION = '0.48.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -847,12 +847,9 @@ const CLIENT_VERSION = '0.47.0';
       const sourceOptions = (m) => (((m && m.source_facets) || [])
         .filter((f) => f && f.count > 0)
         .map((f) => ({ value: f.name, label: f.name + ' · ' + f.count + ' 题' })));
-      // 0 题的内置值不占下拉，退到 placeholder 当示例 —— 新用户第一次录入仍有提示。
-      const sourcePlaceholder = (m) => {
-        const unused = ((m && m.source_facets) || [])
-          .filter((f) => f && !f.count).map((f) => f.name);
-        return unused.length ? '如：' + unused.slice(0, 3).join(' / ') : '如：期中 / 月考';
-      };
+      // v0.48：内置来源已删除，候选只有库里真用过的值。placeholder 只是写法示例，
+      // 不再从「未使用的内置值」里拼 —— 那样等于换个地方摆内置列表。
+      const sourcePlaceholder = () => '如：期中 / 月考';
 
       const blockProps = (field) => ({
         onFocus: () => { activeField.current = field; },
@@ -1936,7 +1933,7 @@ const CLIENT_VERSION = '0.47.0';
         return () => { cancelled = true; };
       }, [version]);
 
-      // 知识点用 facets 里的 path（带层级缩进）；其余三档用 *_facets（带 system 标记）。
+      // 知识点用 facets 里的 path（带层级缩进）；其余三档用 *_facets（只含真实用过的值）。
       const rows = (() => {
         if (!meta) return [];
         if (kind === 'knowledge') {
@@ -1946,7 +1943,7 @@ const CLIENT_VERSION = '0.47.0';
           }));
         }
         return (meta[kind + '_facets'] || []).map((facet) => ({
-          name: facet.name, count: facet.count || 0, system: !!facet.system,
+          name: facet.name, count: facet.count || 0,
         }));
       })();
 
@@ -2018,10 +2015,7 @@ const CLIENT_VERSION = '0.47.0';
                 h('span', {
                   style: { flex: '1 1 auto', paddingLeft: ((row.depth || 1) - 1) * 10 + 'px' },
                 }, row.name),
-                row.count
-                  ? h('span.mb-badge', null, row.count + ' 题')
-                  : h('span.mb-badge', null, '未使用'),
-                row.system ? h('span.mb-note', null, '内置') : null,
+                h('span.mb-badge', null, row.count + ' 题'),
                 editing === row.name
                   ? [
                       h('input.mb-input', {

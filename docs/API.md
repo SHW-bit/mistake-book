@@ -9,7 +9,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类。v0.43 起 `sources` 只含**库里真正用过的值**（按题量降序），另给 `source_facets`（`[{name, count, system}]`，含 0 题的内置值，供词表整理面板用）；`subject_facets` / `tag_facets` / `knowledge` 同为 facets 形态 |
+| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类。v0.43 起 `sources` 只含**库里真正用过的值**（按题量降序），另给 `source_facets`（v0.48 起为 `[{name, count}]`，只含真实用过的值 —— 内置来源列表已删除，不再有 0 题的 `system` 项）；`subject_facets` / `tag_facets` / `knowledge` 同为 facets 形态 |
 | GET | `/api/stats` | 总数、各状态数、待复习数、错因分布、复习正确率 |
 | GET | `/api/mistakes` | 列表；参数 `q, scope, subject, knowledge, tag, status, mistake_type, source, range, due, suspended, page, page_size` |
 | POST | `/api/mistakes` | 新增，返回 201；3 秒内重复题目返回 200 + `duplicate: true` |
