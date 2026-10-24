@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.44.0';
+const CLIENT_VERSION = '0.45.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -200,6 +200,9 @@ const CLIENT_VERSION = '0.44.0';
       '.mb-form{overflow:auto;padding:16px 18px 28px;display:grid;gap:12px;align-content:start;width:100%;box-sizing:border-box;max-width:820px;margin:0 auto}',
       '.mb-field{display:grid;gap:5px;min-width:0}',
       '.mb-field>span{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--mb-faint)}',
+      '.mb-field>span.mb-flabel{display:flex;align-items:center;gap:6px}',
+      '.mb-manage{margin-left:auto;padding:0 3px;border:0;background:none;color:var(--mb-accent);font:inherit;font-size:10px;font-weight:600;cursor:pointer;opacity:.8}',
+      '.mb-manage:hover{opacity:1;text-decoration:underline}',
       '.mb-form textarea,.mb-form input,.mb-form select{width:100%;box-sizing:border-box;border-radius:var(--mb-r-sm);border:1px solid var(--mb-line);background:transparent;color:inherit;font-family:inherit;font-size:13px;padding:7px 9px;min-width:0;transition:border-color .12s,box-shadow .12s}',
       '.mb-form textarea:focus,.mb-form input:focus,.mb-form select:focus{outline:0;border-color:var(--mb-accent);box-shadow:0 0 0 3px var(--mb-accent-soft)}',
       '.mb-form textarea{resize:vertical;min-height:64px;line-height:1.6}',
@@ -735,12 +738,23 @@ const CLIENT_VERSION = '0.44.0';
         ? initial.images.map((img) => ({ src: img.data || img.url, file: img.file, field: img.field || 'question' })) : []));
       const [dirty, setDirty] = useState(false);
       const [imgError, setImgError] = useState('');
+      // v0.45：点字段旁的「管理」打开的词表档位。空串 = 没开。
+      const [vocabKind, setVocabKind] = useState('');
       const fileRef = useRef(null);
       const activeField = useRef('question');
       const fileField = useRef('question');
 
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
       const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
+
+      // v0.45：× 只清这一次输入；下拉候选是题库数据聚合出来的，改它得走「词表整理」。
+      // 所以四个自由文本字段的标签旁各给一个「管理」，点开同一块面板并定位到该档位。
+      const fieldLabel = (text, kind) => h('span.mb-flabel', null, text,
+        h('button.mb-manage', {
+          type: 'button', 'aria-label': '管理' + text + '候选',
+          title: '管理「' + text + '」的下拉候选：合并同义值或清空',
+          onClick: () => setVocabKind(kind),
+        }, '管理'));
 
       // v0.44：学科 / 知识点 / 来源 / 标签都是自由文本，点错了不必全选退格 —— 有内容才显示 ×。
       const clearable = (key, extra) => h('div.mb-clear', null,
@@ -892,10 +906,10 @@ const CLIENT_VERSION = '0.44.0';
             onChange: (event) => { pickFiles(event.target.files, fileField.current); event.target.value = ''; },
           })),
         h('div.mb-fside', null,
-          h('div.mb-field', null, h('span', null, '学科'),
+          h('div.mb-field', null, fieldLabel('学科', 'subject'),
             clearable('subject', { list: 'mb-dl-subject' }),
             choices('mb-dl-subject', meta && meta.subjects)),
-          h('div.mb-field', null, h('span', null, '知识点'),
+          h('div.mb-field', null, fieldLabel('知识点', 'knowledge'),
             clearable('knowledge', { list: 'mb-dl-knowledge' }),
             choices('mb-dl-knowledge', knowledgeFacets(meta).map((facet) => ({ value: facet.path, label: facetLabel(facet) })))),
           // v0.41：录入只留两个必填维度（学科 / 知识点），其余收进折叠——字段还在，只是不再占版面。
@@ -909,7 +923,7 @@ const CLIENT_VERSION = '0.44.0';
                     ((meta && meta.mistake_types) || []).map((value) => ({ value, label: value }))),
                   onChange: setValue('mistake_type'),
                 })),
-              h('div.mb-field', null, h('span', null, '来源'),
+              h('div.mb-field', null, fieldLabel('来源', 'source'),
                 clearable('source', { list: 'mb-dl-source', placeholder: sourcePlaceholder(meta) }),
                 choices('mb-dl-source', sourceOptions(meta)),
                 nearSource ? h('div.mb-note', null,
@@ -917,7 +931,7 @@ const CLIENT_VERSION = '0.44.0';
                   h('button.mb-btn.mini', {
                     type: 'button', onClick: () => setValue('source')(nearSource),
                   }, '用「' + clip(nearSource, 10) + '」')) : null),
-              h('div.mb-field', null, h('span', null, '标签（逗号分隔）'),
+              h('div.mb-field', null, fieldLabel('标签（逗号分隔）', 'tag'),
                 clearable('tags', { placeholder: '如：极限,洛必达' })),
               h('div.mb-field', null, h('span', null, '难度'),
                 h(Dropdown, {
@@ -938,13 +952,17 @@ const CLIENT_VERSION = '0.44.0';
           h('button.mb-btn.primary', { type: 'button', onClick: submit, disabled: busy || (!String(form.question).trim() && !images.length) },
             busy ? '保存中…' : (submitLabel || '保存')),
           h('button.mb-btn', { type: 'button', onClick: onCancel, disabled: busy }, '取消'),
-          error ? h('span.mb-note.bad', null, error) : null));
+          error ? h('span.mb-note.bad', null, error) : null,
+          vocabKind ? h(VocabDialog, {
+            initialKind: vocabKind,
+            onClose: () => { setVocabKind(''); if (props.onMetaChanged) props.onMetaChanged(); },
+          }) : null));
     }
 
     /* ── 详情 ─────────────────────────────────────────────────────────── */
 
     function DetailPane(props) {
-      const { id, mode, meta, onChanged, SessionProvider, renderFactorySlot } = props;
+      const { id, mode, meta, onChanged, onMetaChanged, SessionProvider, renderFactorySlot } = props;
       const [item, setItem] = useState(null);
       const [error, setError] = useState('');
       const [revealed, setRevealed] = useState(mode === 'edit');
@@ -1054,7 +1072,7 @@ const CLIENT_VERSION = '0.44.0';
       if (editing) {
         return h(ItemForm, {
           key: 'edit:' + id,
-          meta, initial: item, onSave: save, onCancel: () => setEditing(false),
+          meta, initial: item, onSave: save, onCancel: () => setEditing(false), onMetaChanged,
           busy, error: note && !note.ok ? note.text : '', submitLabel: '保存修改',
         });
       }
@@ -1823,7 +1841,7 @@ const CLIENT_VERSION = '0.44.0';
       return h('div.mb-mask', { onClick: props.onClose },
         h('div.mb-dlg', { onClick: (e) => e.stopPropagation() },
           h('h3', null, '词表整理'),
-          h(VocabPanel, null),
+          h(VocabPanel, { initialKind: props.initialKind }),
           h('div.mb-formfoot', { style: { marginTop: '8px' } },
             h('button.mb-btn.primary', { type: 'button', onClick: props.onClose }, '关闭'))));
     }
@@ -1833,14 +1851,15 @@ const CLIENT_VERSION = '0.44.0';
     // 这四个字段都是自由文本，录久了必然长出「期中 / 期中考 / 期中考试」这种同义值。
     // 这里给一个集中治理的入口：按题量排序、0 题的标「未使用」、勾选多项并到一个
     // 规范名，或直接删掉。合并优先于删除 —— 删了下次录入还会再脏。
-    function VocabPanel() {
+    function VocabPanel(props) {
       const KINDS = [
         { key: 'source', label: '来源' },
         { key: 'subject', label: '学科' },
         { key: 'knowledge', label: '知识点' },
         { key: 'tag', label: '标签' },
       ];
-      const [kind, setKind] = useState('source');
+      // v0.45：从录入表单点「管理」进来时，直接落在对应档位。
+      const [kind, setKind] = useState((props && props.initialKind) || 'source');
       const [meta, setMeta] = useState(null);
       const [picked, setPicked] = useState([]);
       const [target, setTarget] = useState('');
@@ -2722,12 +2741,12 @@ const CLIENT_VERSION = '0.44.0';
                 h('button.mb-btn.mini', { type: 'button', onClick: () => { if (!formBusy) setCreating(false); } }, '← 返回错题'),
                 h('span.mb-pagetitle', null, '新建错题')),
               h(ItemForm, {
-                key: 'new', meta, initial: null, onSave: create,
+                key: 'new', meta, initial: null, onSave: create, onMetaChanged: refreshMeta,
                 onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
               })) :
               detailId ? h(DetailPane, {
                 key: detailId + ':' + detailMode,
-                id: detailId, mode: detailMode, meta,
+                id: detailId, mode: detailMode, meta, onMetaChanged: refreshMeta,
                 onChanged: reload, SessionProvider, renderFactorySlot,
                 onBack: returnTab ? backTo : null,
                 backLabel: returnTab === 'study' ? '← 返回学习' : '← 返回计划',

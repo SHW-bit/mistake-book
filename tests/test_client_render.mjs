@@ -27,7 +27,9 @@ function fakeReact(seed) {
     createElement: (type, props, ...kids) => ({ type, props: props || {}, kids }),
     useState: (init) => {
       // 与 React 一致：没给 seed 时，函数式初值要被调用（ItemForm 的表单初值就是函数）。
-      const value = cursor < seed.length ? seed[cursor] : (typeof init === 'function' ? init() : init);
+      // seed 里显式写 undefined = 这一格用组件自己的初值，方便只覆盖后面的 hook。
+      const value = cursor < seed.length && seed[cursor] !== undefined
+        ? seed[cursor] : (typeof init === 'function' ? init() : init);
       cursor += 1;
       return [value, () => {}];
     },
@@ -255,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.44/);
+  assert.match(text, /v0\.45/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -561,6 +563,33 @@ test('录入表单：学科/知识点/来源/标签有内容才出 × 清空（v
   }));
   const none = nodesOf(dom2, 'button').filter((node) => node.props['aria-label'] === '清空');
   assert.equal(none.length, 0, '空字段不该出清空按钮');
+});
+
+// v0.45：× 只管这一次输入，改不了下拉候选；候选的合并/清空走「词表整理」。
+// 所以四个自由文本字段的标签旁各给一个「管理」，点开就是同一块面板、定位到该档位。
+test('录入表单：学科/知识点/来源/标签各有一个「管理」入口（v0.45）', () => {
+  const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const manages = nodesOf(dom, 'button').filter((node) => /^管理.+候选$/.test(node.props['aria-label'] || ''));
+  assert.equal(manages.length, 4, '四个自由文本字段各一个');
+  const labels = manages.map((node) => node.props['aria-label']);
+  for (const want of ['管理学科候选', '管理知识点候选', '管理来源候选', '管理标签（逗号分隔）候选']) {
+    assert.ok(labels.indexOf(want) >= 0, '缺入口：' + want);
+  }
+});
+
+test('词表整理：从「管理」进来时直接落在对应档位（v0.45）', () => {
+  const seed = [undefined, META, [], '', '', '', false, '', '', 0];
+  const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({ initialKind: 'tag' }));
+  const active = nodesOf(dom, 'button').filter((node) => node.props.className === 'on');
+  assert.equal(active.length, 1, '同时只能有一个档位是选中态');
+  assert.match(textOf(active[0]).join(''), /标签（1）/, '应当落在标签档');
+  const text = textOf(dom).join('|');
+  assert.match(text, /极限/);
+  assert.ok(text.indexOf('自编卷') < 0, '不该把来源档的值也列出来');
 });
 
 // VocabPanel 的 hooks 顺序：kind, meta, picked, target, editing, editValue, busy, note, error, version
