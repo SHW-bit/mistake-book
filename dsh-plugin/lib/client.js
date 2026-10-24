@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.43.0';
+const CLIENT_VERSION = '0.44.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -203,6 +203,11 @@ const CLIENT_VERSION = '0.43.0';
       '.mb-form textarea,.mb-form input,.mb-form select{width:100%;box-sizing:border-box;border-radius:var(--mb-r-sm);border:1px solid var(--mb-line);background:transparent;color:inherit;font-family:inherit;font-size:13px;padding:7px 9px;min-width:0;transition:border-color .12s,box-shadow .12s}',
       '.mb-form textarea:focus,.mb-form input:focus,.mb-form select:focus{outline:0;border-color:var(--mb-accent);box-shadow:0 0 0 3px var(--mb-accent-soft)}',
       '.mb-form textarea{resize:vertical;min-height:64px;line-height:1.6}',
+      /* v0.44：自由文本字段的 × 清空 */
+      '.mb-clear{position:relative;display:block;min-width:0}',
+      '.mb-clear>input{padding-right:26px}',
+      '.mb-clear-x{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:19px;height:19px;padding:0;line-height:17px;text-align:center;border:0;border-radius:50%;background:transparent;color:var(--mb-faint);cursor:pointer;font-size:13px}',
+      '.mb-clear-x:hover{background:var(--mb-line);color:var(--mb-text)}',
       '.mb-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}',
       '.mb-formfoot{display:flex;gap:8px;align-items:center;padding-top:4px;flex-wrap:wrap}',
       /* ── v0.29 列表卡片与录入表单重排 ───────────────────────────── */
@@ -737,6 +742,16 @@ const CLIENT_VERSION = '0.43.0';
       const set = (key) => (event) => setForm(Object.assign({}, form, { [key]: event.target.value }));
       const setValue = (key) => (value) => setForm(Object.assign({}, form, { [key]: value }));
 
+      // v0.44：学科 / 知识点 / 来源 / 标签都是自由文本，点错了不必全选退格 —— 有内容才显示 ×。
+      const clearable = (key, extra) => h('div.mb-clear', null,
+        h('input', Object.assign({ value: form[key], onChange: set(key) }, extra || {})),
+        String(form[key] || '').trim()
+          ? h('button.mb-clear-x', {
+              type: 'button', 'aria-label': '清空', title: '清空',
+              onClick: () => setValue(key)(''),
+            }, '×')
+          : null);
+
       // v0.43：来源写了个跟已有值只差一个字的，就提示改用已有的（防再长脏值）
       const nearSource = nearName(form.source, ((meta && meta.source_facets) || [])
         .filter((facet) => facet.count > 0).map((facet) => facet.name));
@@ -878,11 +893,11 @@ const CLIENT_VERSION = '0.43.0';
           })),
         h('div.mb-fside', null,
           h('div.mb-field', null, h('span', null, '学科'),
-            h('input', { value: form.subject, onChange: set('subject'), list: 'mb-dl-subject' }),
+            clearable('subject', { list: 'mb-dl-subject' }),
             choices('mb-dl-subject', meta && meta.subjects)),
           h('div.mb-field', null, h('span', null, '知识点'),
-            h('input', { value: form.knowledge, onChange: set('knowledge'), list: 'mb-dl-knowledge' }),
-            choices('mb-dl-knowledge', (meta && meta.knowledge_flat) || knowledgeFacets(meta).map((f) => f.path))),
+            clearable('knowledge', { list: 'mb-dl-knowledge' }),
+            choices('mb-dl-knowledge', knowledgeFacets(meta).map((facet) => ({ value: facet.path, label: facetLabel(facet) })))),
           // v0.41：录入只留两个必填维度（学科 / 知识点），其余收进折叠——字段还在，只是不再占版面。
           h('details.mb-fold.mb-more', null,
             h('summary', null, '更多：错因 · 来源 · 标签 · 难度 · 状态'),
@@ -895,10 +910,7 @@ const CLIENT_VERSION = '0.43.0';
                   onChange: setValue('mistake_type'),
                 })),
               h('div.mb-field', null, h('span', null, '来源'),
-                h('input', {
-                  value: form.source, onChange: set('source'), list: 'mb-dl-source',
-                  placeholder: sourcePlaceholder(meta),
-                }),
+                clearable('source', { list: 'mb-dl-source', placeholder: sourcePlaceholder(meta) }),
                 choices('mb-dl-source', sourceOptions(meta)),
                 nearSource ? h('div.mb-note', null,
                   '已有「' + nearSource + '」，用它更好：',
@@ -906,7 +918,7 @@ const CLIENT_VERSION = '0.43.0';
                     type: 'button', onClick: () => setValue('source')(nearSource),
                   }, '用「' + clip(nearSource, 10) + '」')) : null),
               h('div.mb-field', null, h('span', null, '标签（逗号分隔）'),
-                h('input', { value: form.tags, onChange: set('tags'), placeholder: '如：极限,洛必达' })),
+                clearable('tags', { placeholder: '如：极限,洛必达' })),
               h('div.mb-field', null, h('span', null, '难度'),
                 h(Dropdown, {
                   value: form.difficulty,

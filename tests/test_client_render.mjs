@@ -255,7 +255,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.43/);
+  assert.match(text, /v0\.44/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -520,6 +520,47 @@ test('录入表单：来源下拉只列用过的值并带题量，未使用的�
   const input = nodesOf(dom, 'input').find((node) => node.props.list === 'mb-dl-source');
   assert.ok(input, '缺少来源输入框');
   assert.match(input.props.placeholder, /模拟考/, '未使用的内置值要退到 placeholder 当示例');
+});
+
+// v0.44：知识点下拉按层级缩进并带题量 —— 填进输入框的仍然是完整路径，不是缩进后的显示名。
+test('录入表单：知识点下拉按层级缩进并带题量（v0.44）', () => {
+  const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const meta = Object.assign({}, META, {
+    knowledge: [
+      { path: '函数', name: '函数', parent: '', depth: 1, count: 3 },
+      { path: '函数/单调性', name: '单调性', parent: '函数', depth: 2, count: 2 },
+    ],
+  });
+  const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const list = nodesOf(dom, 'datalist').find((node) => node.props.id === 'mb-dl-knowledge');
+  assert.ok(list, '缺少知识点 datalist');
+  const options = list.children.flat(3).filter(Boolean);
+  assert.deepEqual(options.map((node) => node.props.value), ['函数', '函数/单调性'],
+    '写进输入框的必须是路径，不能带缩进和题量');
+  assert.match(options[1].props.label, /^\u3000单调性/, '二级要缩进一个全角空格');
+  assert.match(options[0].props.label, /（3）/);
+});
+
+// v0.44：自由文本字段的 × 清空 —— 有内容才出，空字段不留空按钮。
+test('录入表单：学科/知识点/来源/标签有内容才出 × 清空（v0.44）', () => {
+  const filled = { question: 'q', my_answer: '', answer: '', analysis: '', subject: '高数',
+    knowledge: '极限', mistake_type: '', source: '作业', tags: '极限', difficulty: '3', status: 'new' };
+  const dom = render(loadPlugin([filled, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const clears = nodesOf(dom, 'button').filter((node) => node.props['aria-label'] === '清空');
+  assert.equal(clears.length, 4, '学科、知识点、来源、标签各一个');
+
+  const empty = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const dom2 = render(loadPlugin([empty, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const none = nodesOf(dom2, 'button').filter((node) => node.props['aria-label'] === '清空');
+  assert.equal(none.length, 0, '空字段不该出清空按钮');
 });
 
 // VocabPanel 的 hooks 顺序：kind, meta, picked, target, editing, editValue, busy, note, error, version
