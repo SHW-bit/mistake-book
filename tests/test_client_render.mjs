@@ -257,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.45/);
+  assert.match(text, /v0\.46/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -582,7 +582,7 @@ test('录入表单：学科/知识点/来源/标签各有一个「管理」入�
 });
 
 test('词表整理：从「管理」进来时直接落在对应档位（v0.45）', () => {
-  const seed = [undefined, META, [], '', '', '', false, '', '', 0];
+  const seed = [undefined, META, [], '', '', '', false, '', '', 0, '', null];
   const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({ initialKind: 'tag' }));
   const active = nodesOf(dom, 'button').filter((node) => node.props.className === 'on');
   assert.equal(active.length, 1, '同时只能有一个档位是选中态');
@@ -592,9 +592,9 @@ test('词表整理：从「管理」进来时直接落在对应档位（v0.45）
   assert.ok(text.indexOf('自编卷') < 0, '不该把来源档的值也列出来');
 });
 
-// VocabPanel 的 hooks 顺序：kind, meta, picked, target, editing, editValue, busy, note, error, version
+// VocabPanel 的 hooks 顺序：kind, meta, picked, target, editing, editValue, busy, note, error, version, query, pending
 test('词表整理：按档位列出值与题量，未使用的与内置的都标出来（v0.43）', () => {
-  const seed = ['source', META, [], '', '', '', false, '', '', 0];
+  const seed = ['source', META, [], '', '', '', false, '', '', 0, '', null];
   const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({}));
   const text = textOf(dom).join('|');
   assert.match(text, /来源（4）/);
@@ -607,6 +607,34 @@ test('词表整理：按档位列出值与题量，未使用的与内置的都�
   assert.equal(nodesOf(dom, 'input').filter((node) => node.props.type === 'checkbox').length, 4,
     '四个来源值各一个勾选框');
   assert.match(text, /清空勾选的 0 项/, '没勾选时按钮说明当前动作');
+});
+
+// v0.46：值一多就难找，给个即时过滤；只筛显示，不动已勾选的集合。
+test('词表整理：搜索框只筛显示，勾选不受影响（v0.46）', () => {
+  const seed = ['source', META, [], '', '', '', false, '', '', 0, '作', null];
+  const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({}));
+  const text = textOf(dom).join('|');
+  assert.match(text, /作业/, '命中的值要留着');
+  assert.ok(text.indexOf('练习册') < 0, '没命中的值不该显示');
+  assert.equal(nodesOf(dom, 'input').filter((node) => node.props.type === 'checkbox').length, 1,
+    '只剩命中的那一个勾选框');
+
+  const none = ['source', META, [], '', '', '', false, '', '', 0, '查无此值', null];
+  const dom2 = render(loadPlugin(none).plugin.__test__.VocabPanel({}));
+  assert.match(textOf(dom2).join('|'), /没有匹配「查无此值」的值/);
+});
+
+// v0.46：合并/清空会真的改库且没有撤销，所以先 dry-run 出影响面再让人点确认。
+test('词表整理：动之前先出确认条，写清影响几道题（v0.46）', () => {
+  const seed = ['source', META, ['作业'], '', '', '', false, '', '', 0, '',
+    { sources: ['作业'], to: '', moved: 3, samples: [{ id: 7, question: '求极限' }] }];
+  const dom = render(loadPlugin(seed).plugin.__test__.VocabPanel({}));
+  const text = textOf(dom).join('|');
+  assert.match(text, /将清空 1 项/);
+  assert.match(text, /影响 3 道题/);
+  assert.match(text, /求极限/, '要给一道样例题，让人确认动的是不是它');
+  const buttons = nodesOf(dom, 'button').map((node) => textOf(node).join(''));
+  assert.ok(buttons.indexOf('确认') >= 0 && buttons.indexOf('取消') >= 0);
 });
 
 // v0.43：来源写了跟已有值只差一个字的，提示改用已有的（防再长脏值）

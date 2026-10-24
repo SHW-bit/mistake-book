@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.45.0';
+const CLIENT_VERSION = '0.46.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -161,6 +161,7 @@ const CLIENT_VERSION = '0.45.0';
       '.mb-rate button:nth-child(4):hover{background:var(--mb-accent-soft)}',
       '.mb-note{margin-top:8px;font-size:12px;color:var(--mb-ok)}',
       '.mb-note.bad{color:var(--mb-danger)}',
+  '.mb-note.warn{display:flex;align-items:center;gap:8px;color:var(--mb-warn,#b45309);background:var(--mb-warn-bg,#fef3c7);border-radius:8px;padding:6px 8px}',
       '.mb-ai{display:flex;flex-direction:column;flex:1;min-height:0}',
       '.mb-aibar{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--mb-line);flex:0 0 auto}',
       '.mb-aititle{font-size:12px;color:var(--mb-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -1869,6 +1870,9 @@ const CLIENT_VERSION = '0.45.0';
       const [note, setNote] = useState('');
       const [error, setError] = useState('');
       const [version, setVersion] = useState(0);
+      // v0.46：这两项必须排在最后 —— 渲染测试按 useState 声明顺序喂 seed，插中间会整体错位。
+      const [query, setQuery] = useState('');
+      const [pending, setPending] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1892,19 +1896,40 @@ const CLIENT_VERSION = '0.45.0';
         }));
       })();
 
+      // v0.46：值一多就难找。只筛显示，不影响已勾选的集合。
+      const shown = query.trim()
+        ? rows.filter((row) => row.name.indexOf(query.trim()) >= 0)
+        : rows;
+
       const toggle = (name) => setPicked((old) => (old.indexOf(name) >= 0
         ? old.filter((item) => item !== name)
         : old.concat([name])));
 
-      const apply = async (sources, to) => {
+      const mergeCall = (sources, to, dry) => (kind === 'knowledge'
+        ? data('/api/knowledge/merge', { method: 'POST',
+            body: JSON.stringify({ sources, target: to, dry: !!dry }) })
+        : data('/api/meta/merge', { method: 'POST',
+            body: JSON.stringify({ kind, sources, target: to, dry: !!dry }) }));
+
+      // v0.46：词表操作不可撤销（回收站只管整道题），所以先算一遍影响面再让用户点头。
+      // dry 只是把同样的匹配跑一遍、不写库，后端把 ids / samples 一并返回。
+      const apply = async (sources, to, force) => {
         if (!sources.length || busy) return;
-        setBusy(true); setError(''); setNote('');
+        setError(''); setNote('');
+        if (!force) {
+          let preview = null;
+          try { preview = await mergeCall(sources, to, true); }
+          catch (failure) { setError(errText(failure)); return; }
+          const hit = (preview && preview.moved) || 0;
+          if (hit > 0) {
+            setPending({ sources, to, moved: hit, samples: (preview && preview.samples) || [] });
+            return;
+          }
+        }
+        setPending(null);
+        setBusy(true);
         try {
-          const result = kind === 'knowledge'
-            ? await data('/api/knowledge/merge', { method: 'POST',
-                body: JSON.stringify({ sources, target: to }) })
-            : await data('/api/meta/merge', { method: 'POST',
-                body: JSON.stringify({ kind, sources, target: to }) });
+          const result = await mergeCall(sources, to, false);
           const moved = (result && result.moved) || 0;
           setPicked([]); setTarget(''); setEditing('');
           setNote(to
@@ -1919,6 +1944,10 @@ const CLIENT_VERSION = '0.45.0';
 
       return h('div.mb-card', null,
         h('div.mb-cardhead', null, '词表整理 · 勾选多项可合并或删除'),
+        h('input.mb-input', {
+          placeholder: '搜值…（只筛显示，不影响已勾选）', value: query,
+          onChange: (e) => setQuery(e.target.value), style: { marginBottom: '6px' },
+        }),
         h('div.mb-tabs', null, KINDS.map((pair) => h('button', {
           key: pair.key, type: 'button', className: kind === pair.key ? 'on' : '',
           onClick: () => { setKind(pair.key); setPicked([]); setEditing(''); setNote(''); },
@@ -1926,8 +1955,8 @@ const CLIENT_VERSION = '0.45.0';
           ? knowledgeFacets(meta).length
           : (meta[pair.key + '_facets'] || []).length)) + '）'))),
         h('div.mb-panel', null,
-          rows.length
-            ? rows.map((row) => h('div.mb-hrow', { key: row.name },
+          shown.length
+            ? shown.map((row) => h('div.mb-hrow', { key: row.name },
                 h('input', {
                   type: 'checkbox', checked: picked.indexOf(row.name) >= 0,
                   onChange: () => toggle(row.name),
@@ -1963,7 +1992,23 @@ const CLIENT_VERSION = '0.45.0';
                         onClick: () => void apply([row.name], ''),
                       }, '删'),
                     ]))
-            : h('div.mb-empty.compact', null, '这一档还没有值。')),
+            : h('div.mb-empty.compact', null,
+                query.trim() ? '没有匹配「' + query.trim() + '」的值。' : '这一档还没有值。')),
+        pending ? h('div.mb-note.warn', { style: { marginTop: '8px' } },
+          h('span', { style: { flex: '1 1 auto' } },
+            (pending.to
+              ? '将把 ' + pending.sources.length + ' 项并到「' + pending.to + '」'
+              : '将清空 ' + pending.sources.length + ' 项')
+            + '，影响 ' + pending.moved + ' 道题'
+            + (pending.samples.length
+              ? '（如：' + clip(pending.samples[0].question || ('#' + pending.samples[0].id), 26) + '）'
+              : '')),
+          h('button.mb-btn.mini', {
+            type: 'button', disabled: busy,
+            onClick: () => void apply(pending.sources, pending.to, true),
+          }, '确认'),
+          h('button.mb-btn.mini', { type: 'button', onClick: () => setPending(null) }, '取消'))
+          : null,
         h('div.mb-row2', { style: { marginTop: '8px' } },
           h('input.mb-input', {
             placeholder: '合并到（留空 = 清空勾选项）', value: target,

@@ -648,7 +648,10 @@ def normalize(body: dict, base: dict | None = None) -> dict:
         raise ValidationError("难度必须在 1-5 之间")
 
     raw_tags = text("tags")
-    tags = ",".join(t.strip() for t in re.split(r"[,，\s]+", raw_tags) if t.strip())
+    # v0.46：只按逗号（含全角）与换行切，不再按空格切 ——「洛必达 法则」是一个标签，
+    # 不是一个叫「洛必达」、一个叫「法则」。顺带去重，"极限,极限" 只留一个。
+    tags = ",".join(dict.fromkeys(
+        t.strip() for t in re.split(r"[,，\r\n]+", raw_tags) if t.strip()))
 
     # 图片（v0.20 起多张）：请求里带了 images 才算"改图"。
     # 元素可以是新图的 Data URL，也可以是已有图片的文件名（表示保留这张）。
@@ -1578,7 +1581,7 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
     raise ValidationError("不支持的合并类型：%s（只能是 subject / tag / source）" % kind)
 
 
-def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dict:
+def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str, dry: bool = False) -> dict:
     """把若干个学科 / 标签 / 来源并成一个规范名。
 
     为什么不复用 merge_knowledge：知识点是 "/" 分层路径，合并时要把子树后缀
@@ -1615,7 +1618,7 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
             column = "subject" if kind == "subject" else "source"
             ids = [r[0] for r in conn.execute(
                 "SELECT id FROM mistakes WHERE " + column + " = ?", (name,)).fetchall()]
-            if ids:
+            if ids and not dry:
                 conn.execute(
                     "UPDATE mistakes SET " + column + " = ?, updated_at = ? WHERE " + column + " = ?",
                     (target, stamp, name))
@@ -1633,10 +1636,17 @@ def merge_meta(conn: sqlite3.Connection, kind: str, sources, target: str) -> dic
                         continue
                     seen.add(t)
                     out.append(t)
-                conn.execute("UPDATE mistakes SET tags = ?, updated_at = ? WHERE id = ?",
-                             (",".join(out), stamp, row[0]))
+                if not dry:
+                    conn.execute("UPDATE mistakes SET tags = ?, updated_at = ? WHERE id = ?",
+                                 (",".join(out), stamp, row[0]))
                 ids.append(row[0])
         moved.extend(ids)
+
+    if dry:
+        return {"kind": kind, "target": target, "sources": clean, "moved": len(moved),
+                "ids": moved, "cleared": not target, "dry": True,
+                "samples": _merge_samples(conn, moved)}
+
     conn.commit()
 
     if moved:
@@ -1687,7 +1697,22 @@ def knowledge_facets(conn: sqlite3.Connection, subject: str = "") -> dict:
             "unclassified": unclassified}
 
 
-def merge_knowledge(conn: sqlite3.Connection, sources, target: str) -> dict:
+def _merge_samples(conn: sqlite3.Connection, ids, limit: int = 5):
+    """预览用：给前几道题一句可读的题干，让用户确认「要动的就是这几道」。
+
+    词表操作不可撤销（回收站只管整道题），所以先给影响面再让用户点确认。
+    """
+    head = [i for i in ids[:limit]]
+    if not head:
+        return []
+    marks = ",".join("?" * len(head))
+    rows = conn.execute("SELECT id, question FROM mistakes WHERE id IN (" + marks + ")",
+                        head).fetchall()
+    by_id = {r["id"]: r["question"] for r in rows}
+    return [{"id": i, "question": (by_id.get(i) or "")[:60]} for i in head]
+
+
+def merge_knowledge(conn: sqlite3.Connection, sources, target: str, dry: bool = False) -> dict:
     """把若干个知识点（连同其子知识点）并到一个规范名下，并登记别名。
 
     存在的理由：自由文本框让 "111"、"2"、"函数 单调性" 这类脏值进了库，
@@ -1720,16 +1745,23 @@ def merge_knowledge(conn: sqlite3.Connection, sources, target: str) -> dict:
                             "OR knowledge LIKE ?", (path, path + "/%")).fetchall()
         for row in rows:
             suffix = row["knowledge"][len(path):]
-            conn.execute("UPDATE mistakes SET knowledge = ?, updated_at = ? WHERE id = ?",
-                         ((target + suffix) if not clearing else "", stamp, row["id"]))
+            if not dry:
+                conn.execute("UPDATE mistakes SET knowledge = ?, updated_at = ? WHERE id = ?",
+                             ((target + suffix) if not clearing else "", stamp, row["id"]))
             moved.append(row["id"])
         # 源名 -> 规范名：以后写 "111" 会自动归到规范名。
         # 删除模式下不登记别名 —— 别名指向空串会让以后正常录入的知识点被悄悄清空。
-        if not clearing:
+        if not clearing and not dry:
             conn.execute("INSERT INTO knowledge_aliases (alias, canonical, created_at) "
                          "VALUES (?,?,?) ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical",
                          (path, target, stamp))
             aliases_added += 1
+
+    if dry:
+        return {"target": target, "sources": clean, "merged": len(clean), "moved": len(moved),
+                "ids": moved, "aliases_added": 0, "cleared": clearing, "dry": True,
+                "samples": _merge_samples(conn, moved)}
+
     conn.commit()
 
     if moved:
@@ -3246,13 +3278,15 @@ class AppHandler(SimpleHTTPRequestHandler):
                 body = self._read_json()
                 return self._json(200, {"ok": True, "data": merge_knowledge(
                     conn, body.get("sources") or body.get("from") or [],
-                    body.get("target") or body.get("to") or "")})
+                    body.get("target") or body.get("to") or "",
+                    dry=bool(body.get("dry")))})
             if path == "/api/meta/merge" and method == "POST":
                 body = self._read_json()
                 return self._json(200, {"ok": True, "data": merge_meta(
                     conn, body.get("kind") or "",
                     body.get("sources") or body.get("from") or [],
-                    body.get("target") or body.get("to") or "")})
+                    body.get("target") or body.get("to") or "",
+                    dry=bool(body.get("dry")))})
             match = re.fullmatch(r"/api/knowledge/aliases/(.+)", path)
             if match and method == "DELETE":
                 alias = unquote(match.group(1))

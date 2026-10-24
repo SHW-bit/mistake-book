@@ -2468,6 +2468,56 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(body['data']['items']), 1)
         self.assertEqual(body['data']['items'][0]['target'], '数学')
 
+    def test_tags_keep_inner_spaces(self):
+        # v0.46：标签里带空格的（「洛必达 法则」）以前被当两个标签切开，现在只按逗号切。
+        item = self.create(question='带空格的标签', tags='洛必达 法则, 极限')
+        self.assertEqual(item['tags'], '洛必达 法则,极限')
+        # 全角逗号、换行都算分隔符；重复项只留一个
+        item = self.create(question='重复标签', tags='极限，极限\n导数')
+        self.assertEqual(item['tags'], '极限,导数')
+        _, body = self.call('GET', '/api/mistakes?tag=' + urllib.parse.quote('洛必达 法则'))
+        self.assertEqual(body['data']['total'], 1, '带空格的标签要能被筛到')
+
+    def test_knowledge_merge_dry_run_changes_nothing(self):
+        # v0.46：先试算影响面，用户确认了才真写。dry 必须一个字都不落库。
+        a = self.create(question='脏值一', knowledge='111')['id']
+        self.create(question='脏值二', knowledge='111/子节点')
+        status, body = self.call('POST', '/api/knowledge/merge', {
+            'sources': ['111'], 'target': '函数', 'dry': True})
+        self.assertEqual(status, 200, body)
+        data = body['data']
+        self.assertTrue(data['dry'])
+        self.assertEqual(data['moved'], 2)
+        self.assertEqual(data['samples'][0]['id'], a)
+        self.assertIn('脏值一', data['samples'][0]['question'])
+        # 没写库：题还是脏值，别名也没登记
+        _, got = self.call('GET', '/api/mistakes/%d' % a)
+        self.assertEqual(got['data']['knowledge'], '111')
+        _, aliases = self.call('GET', '/api/knowledge/aliases')
+        self.assertEqual(aliases['data']['items'], [])
+        # 真正执行一次，结果与预览一致
+        status, body = self.call('POST', '/api/knowledge/merge', {
+            'sources': ['111'], 'target': '函数'})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['data']['moved'], 2)
+        self.assertNotIn('dry', body['data'])
+        _, got = self.call('GET', '/api/mistakes/%d' % a)
+        self.assertEqual(got['data']['knowledge'], '函数')
+
+    def test_meta_merge_dry_run_changes_nothing(self):
+        a = self.create(question='脏标签', tags='14,极限')['id']
+        status, body = self.call('POST', '/api/meta/merge', {
+            'kind': 'tag', 'sources': ['14'], 'target': '', 'dry': True})
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body['data']['dry'])
+        self.assertEqual(body['data']['moved'], 1)
+        _, got = self.call('GET', '/api/mistakes/%d' % a)
+        self.assertEqual(got['data']['tags'], '14,极限', 'dry 不该动标签')
+        status, body = self.call('POST', '/api/meta/merge', {
+            'kind': 'tag', 'sources': ['14'], 'target': ''})
+        self.assertEqual(status, 200, body)
+        _, got = self.call('GET', '/api/mistakes/%d' % a)
+        self.assertEqual(got['data']['tags'], '极限')
     def test_mb_list_sort_cli(self):
         a = self.create(question='错最多')['id']
         self.create(question='别的')
