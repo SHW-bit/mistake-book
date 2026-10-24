@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.56.0';
+const CLIENT_VERSION = '0.57.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     // v0.54：一次把今天这几道交给模型（单题入口那条路由一行没动）
@@ -783,7 +783,7 @@ const CLIENT_VERSION = '0.56.0';
     }
 
     function ItemForm(props) {
-      const { meta, initial, onSave, onCancel, busy, error, submitLabel } = props;
+      const { meta, initial, onSave, onCancel, busy, error, submitLabel, notice } = props;
       const [form, setForm] = useState(() => emptyForm(initial));
       const [images, setImages] = useState(() => (initial && Array.isArray(initial.images)
         ? initial.images.map((img) => ({ src: img.data || img.url, file: img.file, field: img.field || 'question' })) : []));
@@ -875,7 +875,10 @@ const CLIENT_VERSION = '0.56.0';
         if (fileRef.current) fileRef.current.click();
       };
 
-      const submit = () => {
+      const isNew = !initial || !initial.id;
+
+      // v0.57：keepOpen = 「保存并继续」。连续录同一章的题时，弹窗不该关。
+      const submit = async (keepOpen) => {
         if (!String(form.question).trim() && !images.length) return;
         const body = Object.assign({}, form, { difficulty: Number(form.difficulty) || 3 });
         if (dirty) {
@@ -891,7 +894,15 @@ const CLIENT_VERSION = '0.56.0';
           LAST_VALUES.mistake_type = form.mistake_type;
           LAST_VALUES.difficulty = body.difficulty;
         }
-        onSave(body);
+        const ok = await onSave(body, { keepOpen: !!keepOpen });
+        if (ok && keepOpen) {
+          // 表单回到空白，但学科/知识点/来源/错因/难度由 LAST_VALUES 带出来 ——
+          // 连续录同一章时，这五个字段本来就是重复的。
+          setForm(emptyForm(null));
+          setImages([]);
+          setDirty(false);
+          setImgError('');
+        }
       };
 
       // v0.43：datalist 的选项既能是字符串，也能是 { value, label } ——
@@ -1011,10 +1022,12 @@ const CLIENT_VERSION = '0.56.0';
               h('div.mb-field', null, h('span', null, '错因详细描述'),
                 h('input', { value: form.error_reason, onChange: set('error_reason') }))))),
         h('div.mb-formfoot', { style: { gridColumn: '1 / -1' } },
-          h('button.mb-btn.primary', { type: 'button', onClick: submit, disabled: busy || (!String(form.question).trim() && !images.length) },
+          h('button.mb-btn.primary', { type: 'button', onClick: () => submit(false), disabled: busy || (!String(form.question).trim() && !images.length) },
             busy ? '保存中…' : (submitLabel || '保存')),
+          isNew ? h('button.mb-btn', { type: 'button', onClick: () => submit(true), disabled: busy || (!String(form.question).trim() && !images.length) }, '保存并继续') : null,
           h('button.mb-btn', { type: 'button', onClick: onCancel, disabled: busy }, '取消'),
           error ? h('span.mb-note.bad', null, error) : null,
+          notice ? h('span.mb-note.warn', null, notice) : null,
           vocabKind ? h(VocabDialog, {
             initialKind: vocabKind,
             onClose: () => { setVocabKind(''); if (props.onMetaChanged) props.onMetaChanged(); },
@@ -1761,7 +1774,9 @@ const CLIENT_VERSION = '0.56.0';
             },
               h('button.mb-btn', { type: 'button', onClick: () => { setImportOpen(true); setMoreOpen(false); } }, '批量导入'),
               h('button.mb-btn', { type: 'button', onClick: () => { setVocabOpen(true); setMoreOpen(false); } }, '词表整理'),
-              h('button.mb-btn', { type: 'button', onClick: () => { setMoreOpen(false); void checkGc(); } }, '清理图片'),
+              h('button.mb-btn', { type: 'button', onClick: () => { setMoreOpen(false); void checkGc(); } },
+                // v0.57：启动体检发现孤儿图时，把数量直接写在菜单上，不然没人会点进去
+                '清理图片' + ((meta && meta.maintenance && meta.maintenance.image_orphans) ? ' · ' + meta.maintenance.image_orphans : '')),
               h('a.mb-btn', { href: rawUrl('/api/export.csv'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '导出 CSV'),
               h('a.mb-btn', { href: rawUrl('/api/export.json'), target: '_blank', rel: 'noreferrer', onClick: () => setMoreOpen(false), style: { display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' } }, '备份 JSON')) : null)),
 
@@ -2951,6 +2966,8 @@ const CLIENT_VERSION = '0.56.0';
       const [remind, setRemind] = useState(null);
       const [formBusy, setFormBusy] = useState(false);
       const [formError, setFormError] = useState('');
+      // v0.57：录完的提示（比如「和第 #9 道几乎一样」）—— 不是错误，用中性色
+      const [formNote, setFormNote] = useState('');
       // 详情从哪个页签跳过来的（'plan' / 'study'）；空串表示不是跳转进来的
       const [returnTab, setReturnTab] = useState('');
       // v0.54：批量复习会话。{ busy } / { error } / { sessionId, title }
@@ -3039,16 +3056,28 @@ const CLIENT_VERSION = '0.56.0';
         data('/api/meta').then((value) => setMeta(value)).catch(() => { /* 拿不到就沿用旧值 */ });
       }, []);
 
-      const create = async (body) => {
+      const create = async (body, opts) => {
         setFormBusy(true);
         setFormError('');
+        setFormNote('');
         try {
           const item = await data('/api/mistakes', { method: 'POST', body: JSON.stringify(body) });
-          setCreating(false);
-          if (item && item.id) { setDetailId(item.id); setDetailMode('review'); }
+          // v0.57：服务端发现「几乎一样的题干」时回 duplicate_of，只提醒不拦截 ——
+          // 学生确实可能有两道相似的题，硬拦会逼他去改题干。
+          if (item && item.duplicate_of) {
+            setFormNote('已录入 #' + item.id + '；和第 #' + item.duplicate_of + ' 道题干几乎一样，别录重了。');
+          }
+          if (opts && opts.keepOpen) {
+            setCreating(true);
+          } else {
+            setCreating(false);
+            if (item && item.id) { setDetailId(item.id); setDetailMode('review'); }
+          }
           reload();
+          return true;
         } catch (failure) {
           setFormError(errText(failure));
+          return false;
         } finally { setFormBusy(false); }
       };
 
@@ -3117,7 +3146,8 @@ const CLIENT_VERSION = '0.56.0';
                 h('span.mb-pagetitle', null, '新建错题')),
               h(ItemForm, {
                 key: 'new', meta, initial: null, onSave: create, onMetaChanged: refreshMeta,
-                onCancel: () => setCreating(false), busy: formBusy, error: formError, submitLabel: '保存',
+                onCancel: () => setCreating(false), busy: formBusy, error: formError,
+                notice: formNote, submitLabel: '保存',
               })) :
               detailId ? h(DetailPane, {
                 key: detailId + ':' + detailMode,

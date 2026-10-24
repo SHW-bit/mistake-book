@@ -630,6 +630,37 @@ test('录入表单：学科/知识点/来源/标签有内容才出 × 清空（v
   assert.equal(none.length, 0, '空字段不该出清空按钮');
 });
 
+// v0.57：「保存并继续」只在新建时出现 —— 连续录同一章的题不用点二十次「＋ 新建」。
+// 编辑已有题目时不该有它（否则「继续」是继续什么？）。
+test('录入表单：新建时有「保存并继续」，编辑时没有（v0.57）', () => {
+  const form = { question: '求 lim', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const labels = nodesOf(dom, 'button').map((node) => (node.children || []).filter((c) => typeof c === 'string').join(''));
+  assert.ok(labels.some((text) => text === '保存并继续'), '新建表单缺「保存并继续」');
+
+  const dom2 = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: { id: 7, question: '旧题' }, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const labels2 = nodesOf(dom2, 'button').map((node) => (node.children || []).filter((c) => typeof c === 'string').join(''));
+  assert.ok(!labels2.some((text) => text === '保存并继续'), '编辑表单不该有「保存并继续」');
+});
+
+// v0.57：服务端发现「几乎一样的题干」时回 duplicate_of，面板把它当提示、不当错误。
+test('录入表单：重复录入的提醒显示为提示条（v0.57）', () => {
+  const form = { question: '求 lim', my_answer: '', answer: '', analysis: '', subject: '',
+    knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
+  const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
+    meta: META, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+    notice: '已录入 #12；和第 #3 道题干几乎一样，别录重了。',
+  }));
+  const text = JSON.stringify(dom);
+  assert.match(text, /和第 #3 道题干几乎一样/);
+  assert.match(text, /mb-note warn/, '要用中性提示条，不是红色错误');
+});
+
 // v0.45：× 只管这一次输入，改不了下拉候选；候选的合并/清空走「词表整理」。
 // 所以四个自由文本字段的标签旁各给一个「管理」，点开就是同一块面板、定位到该档位。
 test('录入表单：学科/知识点/来源/标签各有一个「管理」入口（v0.45）', () => {

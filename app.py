@@ -295,6 +295,10 @@ MIGRATIONS = (
 # 面板里每点开一道题都会打一行 /preview，噪音盖住真正的错误。
 QUIET = bool(os.environ.get("MISTAKE_BOOK_QUIET"))
 
+# v0.57：启动时对 data/images/ 做一次只读体检（dry run），结果挂进 /api/meta。
+# 只报数、不删文件 —— 删图不可逆，删不删得用户自己点。
+STARTUP_GC = {}
+
 
 class ValidationError(Exception):
     """请求数据不合法 -> 400"""
@@ -794,6 +798,42 @@ def _find_recent_duplicate(conn: sqlite3.Connection, question: str):
         "ORDER BY id DESC LIMIT 1", (question, since)).fetchone()
 
 
+def _question_key(text: str) -> str:
+    """题干的比较键：去掉所有空白、统一全半角标点、转小写。
+
+    只用来「提醒可能重复」，不参与存储 —— 所以可以粗一点。
+    去空白是关键：手打和粘贴的题干经常差一个空格或换行。
+    """
+    text = re.sub(r"\s+", "", str(text or ""))
+    for pair in (("（", "("), ("）", ")"), ("，", ","), ("：", ":"), ("；", ";"),
+                 ("？", "?"), ("！", "!"), ("　", "")):
+        text = text.replace(pair[0], pair[1])
+    return text.lower()
+
+
+def _find_similar_duplicate(conn: sqlite3.Connection, question: str, subject: str,
+                            exclude_id: int = 0):
+    """同一学科下，题干「去掉空白和全半角差异」后完全一样的已有题。
+
+    和 _find_recent_duplicate 的区别：那个只防 3 秒内的双击提交，
+    这个防「隔天又录了一遍同一道题」。只提醒、不拦截。
+
+    exclude_id 是刚插进去的那一行 —— 必须在 SQL 里排掉，否则它自己就是
+    「最像的一行」（ORDER BY id DESC 第一个命中的就是它）。
+    """
+    key = _question_key(question)
+    if len(key) < 4:
+        return None          # 太短的题干（如「1」「求极限」）不值得提示
+    rows = conn.execute(
+        "SELECT id, question FROM mistakes "
+        "WHERE subject = ? AND suspended = 0 AND question <> '' AND id <> ? "
+        "ORDER BY id DESC LIMIT 2000", (subject, exclude_id)).fetchall()
+    for row in rows:
+        if _question_key(row["question"]) == key:
+            return row
+    return None
+
+
 def _check_paper(conn: sqlite3.Connection, paper_id: int) -> int:
     """试卷必须真实存在；0 表示不归卷。"""
     if not paper_id:
@@ -833,7 +873,12 @@ def create_mistake(conn: sqlite3.Connection, body: dict) -> dict:
     append_event(conn, "created", id=cur.lastrowid, subject=data["subject"],
                  knowledge=data["knowledge"], mistake_type=data["mistake_type"],
                  source=data["source"], question=data["question"][:80])
-    return get_mistake(conn, cur.lastrowid)
+    item = get_mistake(conn, cur.lastrowid)
+    similar = _find_similar_duplicate(conn, data["question"], data["subject"], cur.lastrowid)
+    if similar is not None:
+        item["duplicate_of"] = similar["id"]
+        item["duplicate_question"] = (similar["question"] or "")[:80]
+    return item
 
 
 # 批量导入的键名别名：中文为主，顺带兼容英文与常见写法
@@ -2976,6 +3021,10 @@ def meta(conn: sqlite3.Connection) -> dict:
             "setting_labels": SETTING_LABELS,
             "papers": list_papers(conn)["papers"],
             "trash_count": trash_count(conn),
+            # v0.57：启动体检的只读结果。orphans > 0 时面板「清理图片」会带个数字。
+            "maintenance": {"image_orphans": int(STARTUP_GC.get("orphans") or 0),
+                            "image_files": int(STARTUP_GC.get("on_disk") or 0),
+                            "image_bytes": int(STARTUP_GC.get("freed_bytes") or 0)},
             "ratings": [{"value": r, "key": k, "label": fsrs.RATING_LABELS[r]}
                         for k, r in RESULT_RATINGS.items()]}
 
@@ -3986,6 +4035,17 @@ def main(argv=None) -> int:
                 print("已自动备份: %s" % result["path"], flush=True)
         except Exception as exc:  # 备份失败绝不能挡住启动
             print("自动备份失败（不影响使用）: %s" % exc, flush=True)
+
+    # v0.57：启动体检（只读）。发现孤儿图只提示，不自动删。
+    try:
+        with connect(args.db) as gc_conn:
+            STARTUP_GC.clear()
+            STARTUP_GC.update(gc_images(gc_conn, args.db, dry=True))
+        if STARTUP_GC.get("orphans"):
+            print("发现 %d 张没人引用的图片（可释放 %d 字节）：面板「更多 → 清理图片」可清"
+                  % (STARTUP_GC["orphans"], STARTUP_GC.get("freed_bytes") or 0), flush=True)
+    except Exception as exc:  # 体检失败绝不能挡住启动
+        print("图片体检跳过: %s" % exc, flush=True)
 
     httpd = create_server(args.host, args.port, args.db)
     host, port = httpd.server_address[:2]

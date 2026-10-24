@@ -9,10 +9,10 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类。v0.43 起 `sources` 只含**库里真正用过的值**（按题量降序），另给 `source_facets`（`[{name, count}]`，只含真实用过的值，没有 0 题项、没有 `system` 标记）与 `source_hints`（v0.49 新增：`string[]`，placeholder 用的写法示例，来自后端常量 `SOURCE_EXAMPLES`，**不是候选**、不进 facets、不参与合并与落库）；`subject_facets` / `tag_facets` / `knowledge` 同为 facets 形态 |
+| GET | `/api/meta` | 学科、知识点、标签、来源候选、错因分类。v0.57 起含 `maintenance: {image_orphans, image_files, image_bytes}`（启动时对 `data/images/` 的只读体检结果）。v0.43 起 `sources` 只含**库里真正用过的值**（按题量降序），另给 `source_facets`（`[{name, count}]`，只含真实用过的值，没有 0 题项、没有 `system` 标记）与 `source_hints`（v0.49 新增：`string[]`，placeholder 用的写法示例，来自后端常量 `SOURCE_EXAMPLES`，**不是候选**、不进 facets、不参与合并与落库）；`subject_facets` / `tag_facets` / `knowledge` 同为 facets 形态 |
 | GET | `/api/stats` | 总数、各状态数、待复习数、错因分布、复习正确率 |
 | GET | `/api/mistakes` | 列表；参数 `q, scope, subject, knowledge, tag, status, mistake_type, source, range, due, suspended, page, page_size` |
-| POST | `/api/mistakes` | 新增，返回 201；3 秒内重复题目返回 200 + `duplicate: true` |
+| POST | `/api/mistakes` | 新增，返回 201；3 秒内重复题目返回 200 + `duplicate: true`。v0.57 起响应还可能带 `duplicate_of` / `duplicate_question`：同学科、未斩题里题干「去空白 + 全半角归一」后相同，**只提醒不拦截** |
 | GET | `/api/mistakes/{id}` | 详情（含图片） |
 | PUT | `/api/mistakes/{id}` | 更新（未提供的字段保持不变） |
 | DELETE | `/api/mistakes/{id}` | 删除：整条题 + 复习历史快照进回收站，再物理删除 |

@@ -2136,6 +2136,43 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual([i["file"] for i in body["data"]["images"]], [name])
 
+    def test_duplicate_question_detected_across_spacing(self):
+        # v0.57：原来只防 3 秒内的双击（DEDUP_WINDOW_SEC=3）。隔天再录一遍同一道、
+        # 或者粘贴时多一个空格，都会变成两条。现在按「去空白 + 全半角归一」比。
+        first = self.create(question="求 lim(x->0) sin x / x", subject="高数")
+        second = self.create(question="求 lim（x->0）  sin  x /  x", subject="高数")
+        self.assertNotIn("duplicate_of", first)
+        self.assertEqual(second["duplicate_of"], first["id"])
+        self.assertIn("lim", second["duplicate_question"])
+
+    def test_duplicate_question_ignores_other_subject_and_suspended(self):
+        # 只提醒同科、没斩的题：物理和高数里同题干不算重复（可能真是同一道题的两种考法），
+        # 已经斩掉的题也不该跳出来提醒。
+        math = self.create(question="求导 d/dx x^2", subject="高数")
+        # 用空白变体绕开 3 秒同题干窗口，测的才是「同科归一化比对」这一条
+        other = self.create(question="求导  d/dx  x^2", subject="物理")
+        self.assertNotIn("duplicate_of", other)
+
+        self.call("POST", "/api/mistakes/%d/suspend" % math["id"], {"suspended": True})
+        again = self.create(question="求导 d/dx  x^2", subject="高数")
+        self.assertNotIn("duplicate_of", again)
+
+    def test_duplicate_question_skips_very_short_stems(self):
+        # 「1」「求极限」这种太短的题干，去空白后可能和别的题撞上，提示只会是噪音。
+        self.create(question="1", subject="高数")
+        item = self.create(question="12", subject="高数")
+        self.assertNotIn("duplicate_of", item)
+
+    def test_meta_reports_startup_image_check(self):
+        # v0.57：启动时对 data/images/ 做一次只读体检，结果挂在 meta 上，
+        # 面板「更多 → 清理图片」旁边就能带出数量，不用点进去才知道。
+        _, body = self.call("GET", "/api/meta")
+        maintenance = body["data"]["maintenance"]
+        for key in ("image_orphans", "image_files", "image_bytes"):
+            self.assertIn(key, maintenance)
+            self.assertIsInstance(maintenance[key], int)
+        self.assertEqual(maintenance["image_orphans"], 0, "空库不该有孤儿图")
+
     def test_batch_delete_returns_real_count(self):
         a = self.create(question="批删 A")["id"]
         b = self.create(question="批删 B")["id"]
