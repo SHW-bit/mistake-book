@@ -7,7 +7,7 @@
 | 东西 | 内容 |
 | --- | --- |
 | 工具（14 个） | `mb_due` 取到期 / `mb_search` 检索 / `mb_get` 读题（默认不给答案） / `mb_add` 录入 / `mb_review` 判分回写 FSRS（可留证：作答 / 提示级数 / 判分依据） / `mb_brief` 今日简报（最该练哪几道 + 为什么） / `mb_stats` 统计 / `mb_events` 断点 / `mb_weak_steps` 错步 / `mb_batch` 批量导入 / `mb_paper` 组卷 / `mb_report` 周报 / `mb_suggest` 查脏值 / `mb_merge` 合并（知识点 / 学科 / 标签 / 来源四类） |
-| 预设（2 条） | 「错题复习」走复习闭环；「错题答疑」就着一道题就地答疑 |
+| 预设（3 条） | 「错题复习」走复习闭环（可一次带一整批，最多 30 道）；「错题答疑」就着一道题就地答疑；「错题录入」贴图或贴文字抽字段后预览入库 |
 | 面板 | 侧栏「错题本」，六页签：列表 / 学习 / 计划 / 分析 / 打印 / 设置 |
 
 ## 前置：错题本服务
@@ -40,7 +40,7 @@ lib/plugin.js    根行：建复习会话的路由
 lib/tools.js     14 个 mb_* 工具
 lib/client.js    侧栏面板（web 客户端）
 lib/api.js       访问错题本 HTTP 服务的薄封装
-lib/session.js   复习会话的首条消息
+lib/session.js   复习会话：建会话骨架 + 单题/批量两条路由与首条消息
 lib/proxy.js     代理
 skills/review    复习技能（SKILL.md）
 skills/qa        答疑技能（SKILL.md）

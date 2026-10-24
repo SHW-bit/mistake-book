@@ -24,6 +24,9 @@ import { call, settings } from './api.js';
 /** 路由路径（客户端按它 POST）。 */
 export const SESSION_PATH = '/api/mistake-book/session';
 
+/** 批量复习路由（v0.54）：一次把今天这几道交给模型。 */
+export const SESSION_BATCH_PATH = '/api/mistake-book/session-batch';
+
 /** 复习模式预设的 id（与 cordis.patch.yml 里 preset-mistake-review 的 config.id 一致）。 */
 export const REVIEW_PRESET = 'mistake-review';
 
@@ -112,33 +115,22 @@ function userMessage(text) {
   };
 }
 
+/** 失败回执的统一样子（单题与批量共用）。 */
+function fail(code, message, available) {
+  return { ok: false, available: available !== false, error: { code, message } };
+}
+
 /**
- * 建一条复习会话。
+ * 建会话的公共骨架：预设 → 模型 → 建会话 → 改标题 → 注入首条。
+ *
+ * 单题与批量两条路由只差「标题」与「首条消息」，其余（预设解析、模型选择、挂载、
+ * 租约释放、改标题、注入）完全一样。v0.54 抽出这一层，批量会话才有地方落脚，
+ * 又不必把这段最易出事的代码复制一份。
+ *
  * @param {object} deps 依赖（全部可注入，测试里换成假的，不建真会话）
- * @param {object} input 请求体：{ id }
- * @returns {Promise<object>} 回执：{ ok, sessionId, title, renamed } 或 { ok:false, available, error }
+ * @param {{title: string, kickoff: string}} plan 标题与首条消息
  */
-export async function openReviewSession(deps, input) {
-  const fail = (code, message, available) => ({
-    ok: false, available: available !== false, error: { code, message },
-  });
-
-  const id = Number(input && input.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    return fail('body-invalid', '请求体要 JSON：{ "id": <错题编号> }', true);
-  }
-
-  let item;
-  try {
-    item = await deps.loadMistake(id);
-  } catch (error) {
-    const message = error && error.message ? error.message : String(error);
-    return fail('mistake-unreadable', '读不到这道错题：' + message, true);
-  }
-  if (!item || typeof item !== 'object') {
-    return fail('mistake-unreadable', '读不到这道错题：id=' + id, true);
-  }
-
+async function createSession(deps, plan) {
   const presets = deps.agentPresets;
   if (!presets || typeof presets.resolve !== 'function' || typeof presets.mount !== 'function') {
     return fail('preset-unavailable',
@@ -181,7 +173,7 @@ export async function openReviewSession(deps, input) {
   }
 
   const sessionId = (deps.createId ? deps.createId() : 'mistake-review-' + randomUUID());
-  const title = titleForReviewSession(item);
+  const title = plan.title;
   let handle;
   try {
     handle = await agents.create({
@@ -219,7 +211,7 @@ export async function openReviewSession(deps, input) {
   let injected = false;
   if (live && typeof live.inject === 'function') {
     try {
-      live.inject(userMessage(kickoffText(item)));
+      live.inject(userMessage(plan.kickoff));
       injected = true;
     } catch {
       injected = false;
@@ -230,11 +222,117 @@ export async function openReviewSession(deps, input) {
 }
 
 /**
- * 把这条路由挂到插件上：connection 就绪才注册，缺了就不挂（与 studymate 同一口径）。
- * @param {any} ctx 插件根上下文
- * @param {any} config 插件行 config 段（url / home / python）
+ * 建一条复习会话（单题）。
+ * @param {object} deps 依赖（全部可注入，测试里换成假的，不建真会话）
+ * @param {object} input 请求体：{ id }
+ * @returns {Promise<object>} 回执：{ ok, sessionId, title, renamed } 或 { ok:false, available, error }
  */
-export function registerSessionRoute(ctx, config) {
+export async function openReviewSession(deps, input) {
+  const id = Number(input && input.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return fail('body-invalid', '请求体要 JSON：{ "id": <错题编号> }', true);
+  }
+
+  let item;
+  try {
+    item = await deps.loadMistake(id);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    return fail('mistake-unreadable', '读不到这道错题：' + message, true);
+  }
+  if (!item || typeof item !== 'object') {
+    return fail('mistake-unreadable', '读不到这道错题：id=' + id, true);
+  }
+
+  return createSession(deps, { title: titleForReviewSession(item), kickoff: kickoffText(item) });
+}
+
+/** 批量复习会话一次最多带多少道（够一整天用，又不至于把首条消息撑爆）。 */
+export const BATCH_MAX = 30;
+
+/** 批量会话的标题：「错题复习 · 8 道」；只有一道时退回单题标题。 */
+export function titleForBatchSession(items) {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean);
+  if (list.length === 1) return titleForReviewSession(list[0]);
+  return [SESSION_PREFIX, list.length + ' 道'].join(SESSION_SEP);
+}
+
+/**
+ * 批量会话的首条消息：把今天这几道按序号摆出来，每道带学科/知识点与「为什么排它」。
+ *
+ * 与单题版同一条纪律：不贴答案与解析。另外每道只给题干与「我上次答了什么」，
+ * 让模型有据可依地决定先问哪道，而不是把整轮复习当成一次泛泛的问答。
+ *
+ * @param {object[]} items 错题列表
+ * @param {object} notes 可选的 { [id]: 一句话理由 }，来自简报
+ */
+export function kickoffBatchText(items, notes) {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean);
+  const lines = [];
+  lines.push('【' + SESSION_PREFIX + '】今天这 ' + list.length + ' 道，请带我一起过。');
+  lines.push('');
+  list.forEach((item, index) => {
+    const tag = [oneLine(item.subject, 20), oneLine(item.knowledge, 30)].filter(Boolean).join(' · ');
+    const why = notes && typeof notes === 'object' ? oneLine(notes[String(item.id)], 120) : '';
+    lines.push((index + 1) + '. #' + (item.id || '?') + (tag ? '（' + tag + '）' : '') + (why ? ' —— ' + why : ''));
+    const question = oneLine(item.question, 200);
+    if (question !== '') lines.push('   ' + question);
+    const mine = oneLine(item.my_answer, 120);
+    if (mine !== '') lines.push('   我上次答：' + mine);
+  });
+  lines.push('');
+  lines.push('按复习流程来：一道一道走，先让我讲我的思路，再出变式题，最后用 mb_review 回写评分。');
+  lines.push('答案和解析我没贴在这里：等我答完，你用 mb_get 取，现在先别告诉我。');
+  return lines.join('\n');
+}
+
+/**
+ * 建一条批量复习会话：一次把今天这几道交给模型。
+ * @param {object} deps 依赖
+ * @param {object} input 请求体：{ ids: number[], notes?: object }
+ * @returns {Promise<object>} 回执
+ */
+export async function openBatchReviewSession(deps, input) {
+  const raw = input && Array.isArray(input.ids) ? input.ids : null;
+  if (!raw) {
+    return fail('body-invalid', '请求体要 JSON：{ "ids": [错题编号...] }', true);
+  }
+  const ids = [];
+  raw.forEach((value) => {
+    const id = Number(value);
+    if (Number.isInteger(id) && id > 0 && ids.indexOf(id) < 0) ids.push(id);
+  });
+  if (!ids.length) {
+    return fail('body-invalid', 'ids 里没有有效的错题编号', true);
+  }
+  if (ids.length > BATCH_MAX) {
+    return fail('body-invalid', '一次最多带 ' + BATCH_MAX + ' 道（这次 ' + ids.length + ' 道）：拆成两轮更像复习', true);
+  }
+
+  const items = [];
+  const missing = [];
+  for (const id of ids) {
+    try {
+      const item = await deps.loadMistake(id);
+      if (item && typeof item === 'object') items.push(item);
+      else missing.push(id);
+    } catch {
+      missing.push(id);
+    }
+  }
+  if (!items.length) {
+    return fail('mistake-unreadable', '这几道都读不到：' + ids.join(', '), true);
+  }
+
+  const notes = input && input.notes && typeof input.notes === 'object' ? input.notes : null;
+  return createSession(deps, {
+    title: titleForBatchSession(items),
+    kickoff: kickoffBatchText(items, notes),
+  });
+}
+
+/** 把一条「建复习会话」路由挂上去；单题与批量共用这段样板。 */
+function mountSessionRoute(ctx, config, route) {
   if (!ctx || typeof ctx.inject !== 'function') return;
   const s = settings(config);
   ctx.inject(['connection'], (connectionCtx) => {
@@ -242,7 +340,7 @@ export function registerSessionRoute(ctx, config) {
     if (!connection || !connection.fetch || typeof connection.fetch.register !== 'function') return;
     if (typeof connectionCtx.effect !== 'function') return;
     connectionCtx.effect(() => connection.fetch.register({
-      path: SESSION_PATH,
+      path: route.path,
       methods: ['POST'],
       requestBody: 'buffered',
       fetch: async (request) => {
@@ -254,7 +352,7 @@ export function registerSessionRoute(ctx, config) {
           }, { status: 400 });
         }
         try {
-          const view = await openReviewSession({
+          const view = await route.open({
             workspace: s.home,
             loadMistake: (id) => call(s, '/api/mistakes/' + id),
             agentPresets: connectionCtx.get ? connectionCtx.get('agentPresets') : null,
@@ -272,6 +370,31 @@ export function registerSessionRoute(ctx, config) {
           }, { status: 500 });
         }
       },
-    }), '错题本: 建复习会话路由');
+    }), route.label);
+  });
+}
+
+/**
+ * 把单题复习路由挂到插件上：connection 就绪才注册，缺了就不挂（与 studymate 同一口径）。
+ * @param {any} ctx 插件根上下文
+ * @param {any} config 插件行 config 段（url / home / python）
+ */
+export function registerSessionRoute(ctx, config) {
+  mountSessionRoute(ctx, config, {
+    path: SESSION_PATH,
+    label: '错题本: 建复习会话路由',
+    open: openReviewSession,
+  });
+}
+
+/**
+ * 把批量复习路由挂到插件上（v0.54）。单独一条路由，不改编单题那条 ——
+ * 单题入口是面板上最常用的按钮，值得零风险。
+ */
+export function registerBatchSessionRoute(ctx, config) {
+  mountSessionRoute(ctx, config, {
+    path: SESSION_BATCH_PATH,
+    label: '错题本: 建批量复习会话路由',
+    open: openBatchReviewSession,
   });
 }

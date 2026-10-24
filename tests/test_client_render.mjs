@@ -1111,3 +1111,68 @@ test('去练：预设筛选被错题页取走，且只生效一次', () => {
   assert.equal(search(render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }))).props.value, '极限');
   assert.equal(search(render(plugin.__test__.ListTab({ meta: META, onOpen: () => {} }))).props.value, '');
 });
+
+// ── v0.54：把 AI 接进「计划页 → 会话」这条链 ─────────────────────────
+
+test('计划页：今日建议与今天都能一键交给 AI（v0.54）', () => {
+  const report = {
+    window_days: 7, daily_limit: 10, today_count: 1, overdue: 0, total: 1, overflow: 0,
+    days: [{ date: '2026-10-24', label: '今天', count: 1, items: [{ id: 5, question: '今天这道', subject: '高数' }] }],
+  };
+  const brief = { note: '', items: [{ id: 5, question: '建议这道', subject: '高数', reason: '逾期 2 天' }] };
+  const started = [];
+  const dom = render(loadPlugin(['7', '10', '', report, '', '', '10', brief])
+    .plugin.__test__.PlanView({ meta: META, onStartAi: (ids, notes) => started.push([ids, notes]) }));
+
+  const buttons = nodesOf(dom, 'button');
+  const briefBtn = buttons.find((node) => textOf(node).join('') === '让 AI 带我练');
+  assert.ok(briefBtn, '今日建议卡要有「让 AI 带我练」');
+  briefBtn.props.onClick();
+  // 组件与测试跑在不同的 realm 里，deepEqual 会因原型不同报「same structure but not
+  // reference-equal」，所以只钉值本身。
+  assert.equal(started.length, 1);
+  assert.equal(started[0][0].join(','), '5');
+  assert.equal(started[0][1]['5'], '逾期 2 天');
+
+  const todayBtn = buttons.find((node) => textOf(node).join('') === '让 AI 带我练今天');
+  assert.ok(todayBtn, '今天卡要有「让 AI 带我练今天」');
+  todayBtn.props.onClick();
+  assert.equal(started.length, 2);
+  assert.equal(started[1][0].join(','), '5');
+  assert.equal(started[1][1], null);
+});
+
+test('计划页：没给 onStartAi 时不硬塞按钮（老宿主照样能用）', () => {
+  const report = {
+    window_days: 7, daily_limit: 10, today_count: 1, overdue: 0, total: 1, overflow: 0,
+    days: [{ date: '2026-10-24', label: '今天', count: 1, items: [{ id: 5, question: '今天这道' }] }],
+  };
+  const brief = { note: '', items: [{ id: 5, question: '建议这道', reason: '逾期 2 天' }] };
+  const text = textOf(render(loadPlugin(['7', '10', '', report, '', '', '10', brief])
+    .plugin.__test__.PlanView({ meta: META }))).join('|');
+  assert.doesNotMatch(text, /让 AI 带我练/);
+});
+
+test('复习历史：把提示级数、我答、AI 判断摊开（v0.54）', () => {
+  const log = {
+    items: [{
+      id: 1, rating: 3, step: '计算', hints: 1,
+      student_answer: '我写的过程', judgement: '第二步漏了负号',
+      reviewed_at: '2026-10-22 10:00:00', interval_days: 3,
+    }],
+    total: 1, graded: 1, correct: 1, accuracy: 1,
+  };
+  const text = textOf(render(loadPlugin([true, log, '']).plugin.__test__.HistoryBlock({ id: 6, count: 1 }))).join('|');
+  assert.match(text, /提示 1 级/);
+  assert.match(text, /我答：我写的过程/);
+  assert.match(text, /第二步漏了负号/);
+});
+
+test('复习历史：老记录（hints=-1、无留证）不多出一行空证据（v0.54）', () => {
+  const log = {
+    items: [{ id: 2, rating: 3, reviewed_at: '2026-10-21 10:00:00', hints: -1, student_answer: '', judgement: '' }],
+    total: 1, graded: 1, correct: 1, accuracy: 1,
+  };
+  const dom = render(loadPlugin([true, log, '']).plugin.__test__.HistoryBlock({ id: 6, count: 1 }));
+  assert.equal(nodesOf(dom, 'div').filter((node) => /mb-hevidence/.test(node.props.className || '')).length, 0);
+});

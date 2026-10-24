@@ -8,9 +8,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  SESSION_PATH, REVIEW_PRESET, SESSION_PREFIX,
+  SESSION_PATH, SESSION_BATCH_PATH, REVIEW_PRESET, SESSION_PREFIX, BATCH_MAX,
   titleForReviewSession, isReviewSessionTitle, kickoffText,
-  openReviewSession, registerSessionRoute,
+  titleForBatchSession, kickoffBatchText, openBatchReviewSession,
+  openReviewSession, registerSessionRoute, registerBatchSessionRoute,
 } from '../dsh-plugin/lib/session.js';
 import { DATA_PATH, isAllowedPath, registerDataRoute } from '../dsh-plugin/lib/proxy.js';
 
@@ -493,3 +494,72 @@ test('代理路由：raw=1 原样吐出上游字节与 Content-Disposition（导
   }
 });
 
+// ── v0.54：批量复习会话 ────────────────────────────────────────────────
+
+test('批量标题：一道退回单题标题，多道写「N 道」', () => {
+  assert.equal(titleForBatchSession([ITEM]), '错题复习 · #12 · 极限');
+  assert.equal(titleForBatchSession([ITEM, { id: 5 }, { id: 6 }]), '错题复习 · 3 道');
+  assert.equal(titleForBatchSession([]), '错题复习 · 0 道');
+});
+
+test('批量首条：按序号列题干与分类，带理由，不贴答案与解析', () => {
+  const text = kickoffBatchText([ITEM, { id: 5, question: '第二道', my_answer: '错答' }], { 12: '逾期 2 天' });
+  assert.match(text, /今天这 2 道/);
+  assert.match(text, /1\. #12（极限） —— 逾期 2 天/);
+  assert.match(text, /求 lim/);
+  assert.match(text, /我上次答：1\/2/);
+  assert.match(text, /2\. #5/);
+  assert.match(text, /第二道/);
+  assert.doesNotMatch(text, /等价无穷小/, '解析不能进首条');
+  assert.doesNotMatch(text, /正确答案/, '答案不能进首条');
+  assert.match(text, /mb_get/);
+});
+
+test('批量：ids 缺失/非法/超量都当场拒，一次会话都不建', async () => {
+  const { deps: d, calls } = deps();
+  assert.equal((await openBatchReviewSession(d, {})).error.code, 'body-invalid');
+  assert.equal((await openBatchReviewSession(d, { ids: [] })).error.code, 'body-invalid');
+  assert.equal((await openBatchReviewSession(d, { ids: ['x', -1, 0] })).error.code, 'body-invalid');
+  const many = [];
+  for (let i = 1; i <= BATCH_MAX + 1; i += 1) many.push(i);
+  assert.equal((await openBatchReviewSession(d, { ids: many })).error.code, 'body-invalid');
+  assert.equal(calls.create.length, 0);
+});
+
+test('批量：跳过读不到的题，剩一道就退回单题标题', async () => {
+  const { deps: d, calls } = deps({
+    loadMistake: async (id) => {
+      if (id === 99) throw new Error('gone');
+      return id === 12 ? ITEM : { id };
+    },
+  });
+  const view = await openBatchReviewSession(d, { ids: [99, 12] });
+  assert.equal(view.ok, true);
+  assert.equal(view.title, '错题复习 · #12 · 极限');
+  assert.equal(calls.create.length, 1);
+  assert.equal(calls.inject.length, 1);
+  assert.equal(calls.disposed, 1, '租约必须还掉');
+});
+
+test('批量：一道都读不到就报错，不建会话', async () => {
+  const { deps: d, calls } = deps({ loadMistake: async () => { throw new Error('gone'); } });
+  const view = await openBatchReviewSession(d, { ids: [1, 2] });
+  assert.equal(view.error.code, 'mistake-unreadable');
+  assert.equal(calls.create.length, 0);
+});
+
+test('批量路由：单独一条路径，不碰单题那条', () => {
+  const paths = [];
+  const ctx = {
+    inject(services, cb) {
+      cb({
+        connection: { fetch: { register: (route) => { paths.push(route.path); } } },
+        effect: (fn) => fn(),
+        get: () => null,
+      });
+    },
+  };
+  registerBatchSessionRoute(ctx, { url: 'http://127.0.0.1:8000' });
+  assert.deepEqual(paths, [SESSION_BATCH_PATH]);
+  assert.notEqual(SESSION_BATCH_PATH, SESSION_PATH);
+});

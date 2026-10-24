@@ -21,9 +21,11 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.53.0';
+const CLIENT_VERSION = '0.54.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
+    // v0.54：一次把今天这几道交给模型（单题入口那条路由一行没动）
+    const SESSION_BATCH_ENDPOINT = '/api/mistake-book/session-batch';
     const DATA_ENDPOINT = '/api/mistake-book/data';
     const STEPS = ['审题', '建模', '计算', '检验', '表达', '记忆'];
     const RESULT_LABEL = { again: '又错', hard: '勉强', good: '答对', easy: '很熟', mastered: '标记掌握' };
@@ -47,6 +49,9 @@ const CLIENT_VERSION = '0.53.0';
       '.mb-head{flex:0 0 auto;padding:8px 10px 0;border-bottom:1px solid var(--mb-line)}',
       '.mb-headtop{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}',
   '.mb-ver{font-size:11px;font-weight:500;color:var(--mb-dim);letter-spacing:.02em}',
+      // v0.54：复习历史里的证据行（提示级数 / 我答 / AI 判断）
+      '.mb-hitem{display:flex;flex-direction:column;gap:0}',
+      '.mb-hevidence{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 0 6px 2px;color:var(--mb-dim);font-size:11px;line-height:1.45}',
       '.mb-title{font-size:15px;font-weight:650;letter-spacing:.01em}',
       '.mb-stats{color:var(--mb-dim);font-size:12px;white-space:nowrap}',
       '.mb-stats b{font-weight:600;color:inherit}',
@@ -572,6 +577,7 @@ const CLIENT_VERSION = '0.53.0';
       const sessionId = props.sessionId;
       const title = props.title;
       const onBack = props.onBack;
+      const backLabel = props.backLabel || '← 返回题目';
       const sessions = hostServices.sessions;
       const [held, setHeld] = useState(null);
       const [error, setError] = useState('');
@@ -598,17 +604,17 @@ const CLIENT_VERSION = '0.53.0';
       const live = held && held.id === sessionId ? held : null;
       if (error) {
         return h('div.mb-ai', null,
-          h('div.mb-aibar', null, h('button.mb-btn', { type: 'button', onClick: onBack }, '← 返回题目'), h('span.mb-aititle', null, error)),
+          h('div.mb-aibar', null, h('button.mb-btn', { type: 'button', onClick: onBack }, backLabel), h('span.mb-aititle', null, error)),
           h('div.mb-empty', null, error));
       }
       if (!live || !SessionProvider) {
         return h('div.mb-ai', null,
-          h('div.mb-aibar', null, h('button.mb-btn', { type: 'button', onClick: onBack }, '← 返回题目')),
+          h('div.mb-aibar', null, h('button.mb-btn', { type: 'button', onClick: onBack }, backLabel)),
           h('div.mb-empty', null, '正在接入会话…'));
       }
       return h('div.mb-ai', null,
         h('div.mb-aibar', null,
-          h('button.mb-btn', { type: 'button', onClick: onBack }, '← 返回题目'),
+          h('button.mb-btn', { type: 'button', onClick: onBack }, backLabel),
           h('span.mb-aititle', null, title || '')),
         h(SessionProvider, { session: live.reference },
           h('div.mb-conv', null,
@@ -650,13 +656,32 @@ const CLIENT_VERSION = '0.53.0';
           error ? h('div.mb-note.bad', null, error) :
             !log ? h('div.mb-empty', null, '读取中…') :
               !log.items.length ? h('div.mb-empty', null, '还没有复习记录') :
-                log.items.map((row) => h('div.mb-hrow', { key: row.id },
-                  h('span.mb-htime', null, String(row.reviewed_at || '').slice(5, 16)),
-                  h('span', null, (row.rating ? RATING_LABEL[row.rating] : (RESULT_LABEL[row.result] || row.result || '')) +
-                    (row.step ? ' · 断点 ' + row.step : '')),
-                  h('span.mb-meta', { style: { marginTop: '0', marginLeft: 'auto' } },
-                    row.interval_days ? h('span', null, '间隔 ' + row.interval_days + ' 天') : null,
-                    row.stage ? h('span', null, '· 阶段 ' + row.stage) : null)))) : null);
+                log.items.map((row) => h('div.mb-hitem', { key: row.id },
+                  h('div.mb-hrow', null,
+                    h('span.mb-htime', null, String(row.reviewed_at || '').slice(5, 16)),
+                    h('span', null, (row.rating ? RATING_LABEL[row.rating] : (RESULT_LABEL[row.result] || row.result || '')) +
+                      (row.step ? ' · 断点 ' + row.step : '')),
+                    h('span.mb-meta', { style: { marginTop: '0', marginLeft: 'auto' } },
+                      row.interval_days ? h('span', null, '间隔 ' + row.interval_days + ' 天') : null,
+                      row.stage ? h('span', null, '· 阶段 ' + row.stage) : null)),
+                  evidenceLine(row)))) : null);
+    }
+
+    /**
+     * v0.54：把 AI 判分时留下的证据摊开。
+     * v0.51 起 review_logs 就存了 student_answer / hints / judgement，但界面只显示
+     * 评分与断点 —— 只写不读的字段等于没存，用户也就看不见 AI 凭什么这么判。
+     */
+    function evidenceLine(row) {
+      const hints = typeof row.hints === 'number' ? row.hints : -1;
+      const mine = String(row.student_answer || '').trim();
+      const verdict = String(row.judgement || '').trim();
+      if (hints < 0 && mine === '' && verdict === '') return null;
+      const clip = (text, max) => (text.length > max ? text.slice(0, max) + '…' : text);
+      return h('div.mb-hevidence', null,
+        hints >= 0 ? h('span.mb-badge', null, hints === 0 ? '零提示做对' : '提示 ' + hints + ' 级') : null,
+        mine !== '' ? h('span.mb-meta', null, '我答：' + clip(mine, 60)) : null,
+        verdict !== '' ? h('span.mb-meta', null, clip(verdict, 90)) : null);
     }
 
     function VariantsBlock(props) {
@@ -2308,6 +2333,8 @@ const CLIENT_VERSION = '0.53.0';
     function PlanView(props) {
       const meta = props.meta || {};
       const onOpen = props.onOpen;
+      // v0.54：把「今天这几道」交给 AI（不传就退化成原来的点击打开）
+      const onStartAi = props.onStartAi;
       const settings = meta.settings || {};
       const savedLimit = String(settings.daily_limit || 20);
       const [days, setDays] = useState('7');
@@ -2389,9 +2416,19 @@ const CLIENT_VERSION = '0.53.0';
 
         brief && (brief.note || (brief.items || []).length)
           ? h('div.mb-card', null,
-              h('div.mb-cardhead', null, '今日建议'),
+              h('div.mb-cardhead', null,
+                '今日建议',
+                onStartAi && brief.items && brief.items.length
+                  ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(brief.items.map((row) => row.id), brief.items.reduce((acc, row) => { if (row.reason) acc[row.id] = row.reason; return acc; }, {})) }, '让 AI 带我练')
+                  : null),
               brief.note ? h('div.mb-note', null, brief.note) : null,
-              (brief.items || []).slice(0, 3).map((item) => h('div.mb-hrow', { key: item.id },
+              (brief.items || []).slice(0, 3).map((item) => h('button.mb-hrow.pickable', {
+                key: item.id, type: 'button', title: '让 AI 带我从这道开始',
+                onClick: () => {
+                  if (onStartAi) onStartAi([item.id], item.reason ? { [item.id]: item.reason } : null);
+                  else if (onOpen) onOpen(item.id);
+                },
+              },
                 h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(item, 60) }),
                 h('span.mb-badge', null, item.subject || '未分类'),
                 item.reason ? h('span.mb-meta', { style: { flex: '0 0 auto' } }, item.reason) : null)))
@@ -2407,7 +2444,9 @@ const CLIENT_VERSION = '0.53.0';
 
         today && today.count
           ? h('div.mb-card', null,
-              h('div.mb-cardhead', null, '今天 · ' + today.count + ' 道'),
+              h('div.mb-cardhead', null,
+                '今天 · ' + today.count + ' 道',
+                onStartAi ? h('button.mb-btn.mini', { type: 'button', style: { marginLeft: 'auto' }, onClick: () => onStartAi(today.items.map((row) => row.id), null) }, '让 AI 带我练今天') : null),
               today.items.map((item) => h('button.mb-hrow.pickable', {
                 key: item.id, type: 'button', title: onOpen ? '在「错题」页打开这道题' : '',
                 onClick: () => { if (onOpen) onOpen(item.id); },
@@ -2831,6 +2870,8 @@ const CLIENT_VERSION = '0.53.0';
       const [formError, setFormError] = useState('');
       // 详情从哪个页签跳过来的（'plan' / 'study'）；空串表示不是跳转进来的
       const [returnTab, setReturnTab] = useState('');
+      // v0.54：批量复习会话。{ busy } / { error } / { sessionId, title }
+      const [aiSession, setAiSession] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -2880,6 +2921,26 @@ const CLIENT_VERSION = '0.53.0';
         setTab('list');
       }, []);
 
+      // v0.54：把「今天这几道」交给模型。走单独一条路由，单题入口不受影响。
+      const startAiBatch = useCallback(async (ids, notes) => {
+        const list = (Array.isArray(ids) ? ids : []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0);
+        if (!list.length) return;
+        setAiSession({ busy: true });
+        try {
+          const view = await api(SESSION_BATCH_ENDPOINT, {
+            method: 'POST',
+            body: JSON.stringify({ ids: list, notes: notes || {} }),
+          });
+          if (!view || !view.ok) {
+            setAiSession({ error: (view && view.error && view.error.message) || '建会话失败' });
+            return;
+          }
+          setAiSession({ sessionId: view.sessionId, title: view.title });
+        } catch (failure) {
+          setAiSession({ error: errText(failure) });
+        }
+      }, []);
+
       const backTo = useCallback(() => {
         setReturnTab('');
         setDetailId(0);
@@ -2907,6 +2968,23 @@ const CLIENT_VERSION = '0.53.0';
       const showRemind = remind && remind.should_notify &&
         (typeof localStorage === 'undefined' || localStorage.getItem(REMIND_KEY) !== String(remind.now || '').slice(0, 10));
 
+      // v0.54：批量会话占满内容区；页签还在，切走就结束。
+      const aiBody = !aiSession ? null
+        : aiSession.error
+          ? h('div.mb-ai', null,
+              h('div.mb-aibar', null,
+                h('button.mb-btn', { type: 'button', onClick: () => setAiSession(null) }, '← 返回计划'),
+                h('span.mb-aititle', null, '建会话失败')),
+              h('div.mb-empty', null, aiSession.error))
+          : aiSession.busy
+            ? h('div.mb-ai', null, h('div.mb-empty', null, '正在建会话…'))
+            : h(AiPane, {
+                SessionProvider, renderFactorySlot,
+                sessionId: aiSession.sessionId, title: aiSession.title,
+                backLabel: '← 返回计划',
+                onBack: () => setAiSession(null),
+              });
+
       return h('div.mb', null,
         h('header.mb-head', null,
           // 两行：标题 + 计数 + 主操作一行，页签单独一行（窄侧栏里挤一行会折成三行）
@@ -2919,7 +2997,7 @@ const CLIENT_VERSION = '0.53.0';
             h('button.mb-btn.primary', { type: 'button', onClick: () => { setCreating(true); setDetailId(0); setTab('list'); } }, '＋ 新建')),
           h('div.mb-tabs', null, TABS.map((pair) => h('button', {
             key: pair[0], type: 'button', className: tab === pair[0] ? 'on' : '',
-            onClick: () => { setTab(pair[0]); setCreating(false); setReturnTab(''); },
+            onClick: () => { setTab(pair[0]); setCreating(false); setReturnTab(''); setAiSession(null); },
           }, pair[1])))),
 
         showRemind ? h('div.mb-remind', null,
@@ -2929,7 +3007,8 @@ const CLIENT_VERSION = '0.53.0';
             setRemind(null);
           } }, '知道了')) : null,
 
-        tab === 'list' ? h('div.mb-split', null,
+        aiBody ? aiBody :
+          tab === 'list' ? h('div.mb-split', null,
           h(ListTab, { meta, onOpen: open, pickedId: detailId, onStats: setStats, reloadKey, initialScope: 'all' }),
           h('div.mb-right', null,
             creating ? h('div.mb-detail.mb-page', null,
@@ -2949,7 +3028,7 @@ const CLIENT_VERSION = '0.53.0';
               }) :
                 h('div.mb-empty', null, '从左栏选一道错题，或点「＋ 新建」'))) :
           tab === 'study' ? h(StudyView, { meta, onOpen: openFromStudy, onGoto: gotoList }) :
-            tab === 'plan' ? h(PlanView, { meta, onOpen: openFromPlan, onSettingsSaved: refreshMeta, onGoto: gotoList }) :
+            tab === 'plan' ? h(PlanView, { meta, onOpen: openFromPlan, onSettingsSaved: refreshMeta, onGoto: gotoList, onStartAi: startAiBatch }) :
               tab === 'an' ? h(AnalyticsView, { onGoto: gotoList }) :
                 tab === 'arena' ? h(ArenaView, { meta, onSettingsSaved: refreshMeta }) :
                   h(TrashView, null));

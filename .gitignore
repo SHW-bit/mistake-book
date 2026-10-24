@@ -1,6 +1,7 @@
 # 运行时数据（个人错题、图片、备份，绝不入库）
 data/
 tests/_tmp/
+tests/_tmp_*
 
 # Python
 __pycache__/

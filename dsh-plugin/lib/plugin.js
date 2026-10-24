@@ -7,13 +7,14 @@
  *
  * 所以这里只挂两条路由：
  *   · POST /api/mistake-book/session —— 按「错题复习」预设建会话（lib/session.js）；
+ *   · POST /api/mistake-book/session-batch —— 同上，一次带今天这几道（v0.54）；
  *   · GET|POST /api/mistake-book/data —— 数据代理，把面板的 /api/* 转发给本机服务（lib/proxy.js）。
  * 第二条是因为面板与错题本服务不同源，而 app.py 不发 CORS 头（见 lib/proxy.js 开头）。
  *
  * 工具不在这儿注册——工具归 /tools 子路径，由两条预设按作用域各自挂，别在根上重复注册一份。
  */
 
-import { registerSessionRoute } from './session.js';
+import { registerSessionRoute, registerBatchSessionRoute } from './session.js';
 import { registerDataRoute } from './proxy.js';
 
 export const name = 'mistake-book-plugin';
@@ -24,5 +25,6 @@ export const name = 'mistake-book-plugin';
  */
 export function apply(ctx, config) {
   registerSessionRoute(ctx, config);
+  registerBatchSessionRoute(ctx, config);
   registerDataRoute(ctx, config);
 }
