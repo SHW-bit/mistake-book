@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.54.0';
+const CLIENT_VERSION = '0.55.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     // v0.54：一次把今天这几道交给模型（单题入口那条路由一行没动）
@@ -171,6 +171,14 @@ const CLIENT_VERSION = '0.54.0';
       '.mb-aibar{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--mb-line);flex:0 0 auto}',
       '.mb-aititle{font-size:12px;color:var(--mb-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.mb-conv{flex:1;min-height:0;overflow:auto}',
+      // v0.55：AI 问答左右并排（左题目、右会话）。:has() 让左栏错题列表在会话期间收起，
+      // 不支持 :has() 的宿主退化成「列表 | 题目 | AI」三栏，仍然可用。
+      '.mb-aiduo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);height:100%;min-height:0;overflow:hidden}',
+      '.mb-aiduo-side{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--mb-line)}',
+      '.mb-aiduo-side>.mb-detail{flex:1 1 auto;min-height:0}',
+      '.mb-aiduo-main{display:flex;flex-direction:column;min-width:0;min-height:0}',
+      '.mb-split:has(.mb-aiduo){grid-template-columns:minmax(0,1fr)}',
+      '.mb-split:has(.mb-aiduo) .mb-left{display:none}',
       '.mb-toolbar{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--mb-line);flex:0 0 auto;flex-wrap:wrap}',
       '.mb-input{height:28px;border-radius:var(--mb-r-sm);border:1px solid var(--mb-line);background:transparent;color:inherit;font-family:inherit;font-size:12px;padding:0 9px;min-width:0;transition:border-color .12s,box-shadow .12s}',
       '.mb-input:hover{border-color:var(--mb-line-strong)}',
@@ -309,7 +317,7 @@ const CLIENT_VERSION = '0.54.0';
       '.mb ::-webkit-scrollbar{width:10px;height:10px}',
       '.mb ::-webkit-scrollbar-thumb{background:var(--mb-line-strong);border-radius:999px;border:3px solid transparent;background-clip:content-box}',
       '.mb ::-webkit-scrollbar-track{background:transparent}',
-      '@media (max-width:520px){.mb-head{padding:6px 8px 0}.mb-toolbar .mb-seg{display:none}.mb-toolbar{padding:6px 7px}}\n@media (hover:none){.mb-item .mb-rowacts{opacity:1;pointer-events:auto}}\n@media (max-width:760px){.mb-head{padding:8px 10px 0}.mb-split{grid-template-columns:minmax(0,1fr)}.mb-left{border-right:0;border-bottom:1px solid var(--mb-line);max-height:46%}.mb-filters{grid-template-columns:1fr}.mb-row2{grid-template-columns:1fr}.mb-detail{padding:14px 12px 24px}.mb-form{padding:14px 12px 24px}.mb-rate{grid-template-columns:repeat(2,minmax(0,1fr))}}',
+      '@media (max-width:520px){.mb-head{padding:6px 8px 0}.mb-toolbar .mb-seg{display:none}.mb-toolbar{padding:6px 7px}}\n@media (hover:none){.mb-item .mb-rowacts{opacity:1;pointer-events:auto}}\n@media (max-width:760px){.mb-head{padding:8px 10px 0}.mb-split{grid-template-columns:minmax(0,1fr)}.mb-left{border-right:0;border-bottom:1px solid var(--mb-line);max-height:46%}.mb-filters{grid-template-columns:1fr}.mb-row2{grid-template-columns:1fr}.mb-detail{padding:14px 12px 24px}.mb-form{padding:14px 12px 24px}.mb-rate{grid-template-columns:repeat(2,minmax(0,1fr))}.mb-aiduo{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,46%) minmax(0,1fr)}.mb-aiduo-side{border-right:0;border-bottom:1px solid var(--mb-line)}}',
       '@media (prefers-reduced-motion:reduce){.mb *,.mb *::before{animation:none!important;transition:none!important}}',
     ].join('');
 
@@ -609,7 +617,11 @@ const CLIENT_VERSION = '0.54.0';
       }
       if (!live || !SessionProvider) {
         return h('div.mb-ai', null,
-          h('div.mb-aibar', null, h('button.mb-btn', { type: 'button', onClick: onBack }, backLabel)),
+          // v0.55：接入过程中也把标题显示出来 —— 左右并排后右栏没有题目上下文，
+          // 顶栏只剩一个「退出」，不知道在等什么。
+          h('div.mb-aibar', null,
+            h('button.mb-btn', { type: 'button', onClick: onBack }, backLabel),
+            h('span.mb-aititle', null, title || '')),
           h('div.mb-empty', null, '正在接入会话…'));
       }
       return h('div.mb-ai', null,
@@ -1108,13 +1120,6 @@ const CLIENT_VERSION = '0.54.0';
         : null;
       const missing = /不存在/.test(String(error)) ? '这道题已被删除或不存在（id=' + id + '）' : error;
 
-      if (ai) {
-        return h(AiPane, {
-          SessionProvider, renderFactorySlot,
-          sessionId: ai.sessionId, title: ai.title,
-          onBack: () => setAi(null),
-        });
-      }
       if (error) return h('div', null, backBar, h('div.mb-empty', null, missing));
       if (!item) return h('div', null, backBar, h('div.mb-empty', null, '加载中…'));
       if (editing) {
@@ -1153,7 +1158,7 @@ const CLIENT_VERSION = '0.54.0';
               el.src = rawUrl('/api/images/' + encodeURIComponent(img.file));
             },
           })))) : null);
-      return h('div.mb-detail', null,
+      const body = h('div.mb-detail', null,
         backBar,
         h('div.mb-card.q', null,
           h('div.mb-cardhead', null, '题目 #' + item.id),
@@ -1219,8 +1224,21 @@ const CLIENT_VERSION = '0.54.0';
               item.suspended ? '恢复复习' : '斩题'),
             h('button.mb-btn.danger', { type: 'button', onClick: () => void remove(), disabled: busy }, '删除'),
             ),
-          h('button.mb-btn.primary.mb-cta2', { type: 'button', onClick: () => void startAi(), disabled: busy },
+          ai ? null : h('button.mb-btn.primary.mb-cta2', { type: 'button', onClick: () => void startAi(), disabled: busy },
             busy ? '正在建会话…' : '让 AI 带我复习这道')));
+
+      if (!ai) return body;
+      // v0.55：AI 问答改成左右并排 —— 左题目、右对话。原来是把整个详情换成会话，
+      // 学生看不到题面，也没法边看边自己动笔；现在题面留在左边（答案仍默认折叠）。
+      return h('div.mb-aiduo', null,
+        h('div.mb-aiduo-side', null, body),
+        h('div.mb-aiduo-main', null,
+          h(AiPane, {
+            SessionProvider, renderFactorySlot,
+            sessionId: ai.sessionId, title: ai.title,
+            backLabel: '← 退出 AI',
+            onBack: () => setAi(null),
+          })));
     }
 
     /* ── 自定义下拉（v0.24）────────────────────────────────────────────── */

@@ -417,6 +417,36 @@ test('详情：答案折叠 → 展开后四档评分、断点下拉、变式、
   assert.match(text, /极限/);
 });
 
+// v0.55：AI 问答改成左右并排 —— 左边是题目，右边是会话。
+// 原来是把整个详情换成 AiPane，学生看不到题面。
+test('详情：AI 问答时左边题目右边会话（v0.55）', () => {
+  const ai = { sessionId: 's1', title: '错题复习 · 函数' };
+  const seed = [DETAIL, '', false, false, false, null, '', null, ai];
+  const dom = render(loadPlugin(seed).plugin.__test__.DetailPane({ id: 6, mode: 'review', meta: META }));
+
+  const classes = classesOf(dom);
+  assert.ok(classes.includes('mb-aiduo'), '要有一层左右并排容器');
+  assert.ok(classes.includes('mb-aiduo-side'), '左栏装题目');
+  assert.ok(classes.includes('mb-aiduo-main'), '右栏装会话');
+
+  const side = nodesOf(dom, 'div').find((n) => /(^|\s)mb-aiduo-side(\s|$)/.test(n.props.className || ''));
+  const main = nodesOf(dom, 'div').find((n) => /(^|\s)mb-aiduo-main(\s|$)/.test(n.props.className || ''));
+  assert.ok(side && main, '两栏都要在');
+
+  const left = textOf(side).join('|');
+  const right = textOf(main).join('|');
+  assert.match(left, /题目 #6/, '左边是题目');
+  assert.match(left, /极限/, '左边有题干');
+  assert.ok(!left.includes('退出 AI'), '退出按钮不该跑到题目栏');
+  assert.match(right, /退出 AI/, '右边有退出入口');
+  assert.match(right, /错题复习 · 函数/, '右边带会话标题');
+  // 没有 SessionProvider 时 AiPane 停在「正在接入会话…」，这正好证明会话栏在右边
+  assert.match(right, /正在接入会话/);
+
+  const text = textOf(dom).join('|');
+  assert.ok(!text.includes('让 AI 带我复习这道'), '会话已开，入口按钮要收起来');
+});
+
 // v0.32：图片按 field 归位；点图放大走命令式浮层（data: URL 顶层跳转会被浏览器拦，所以不再开新标签）
 test('详情：图片按 field 归位，每张都能点开放大', () => {
   const imgs = [
