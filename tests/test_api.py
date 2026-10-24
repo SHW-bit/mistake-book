@@ -829,8 +829,10 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["data"]["passed_total"], 0)
         reasons = body["data"]["pending"][0]["gate_reasons"]
         self.assertTrue(any("题目不足" not in r for r in reasons))
+        # v0.50：题库小（< 30 道）走宽松档，否则 9 道题的库里「已掌握」永远是 0
         self.assertEqual(body["data"]["thresholds"],
-                         {"min_mistakes": 3, "min_stage": 2, "min_stability": 21.0})
+                         {"min_mistakes": 2, "min_stage": 2, "min_stability": 7.0,
+                          "mode": "small", "total_mistakes": 3, "scale_at": 30})
 
         self.assertEqual(body["data"]["bands"]["weak"], "薄弱")
         self.assertEqual(body["data"]["band_counts"]["weak"], 1)
@@ -845,8 +847,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["data"]["pending"], [])
         self.assertTrue(body["data"]["passed"][0]["mastered_gate"])
 
-        # 删掉一道 -> 题目数不足 3，门禁重新不通过
+        # 删到只剩一道 -> 题目数不足（宽松档门槛是 2 道），门禁重新不通过
         self.call("DELETE", "/api/mistakes/%d" % ids[2])
+        self.call("DELETE", "/api/mistakes/%d" % ids[1])
         _, body = self.call("GET", "/api/mastery")
         self.assertEqual(body["data"]["passed_total"], 0)
         self.assertIn("题目不足", body["data"]["pending"][0]["gate_reasons"][0])
@@ -854,6 +857,70 @@ class ApiTest(unittest.TestCase):
         # stats 里也带门禁口径
         _, body = self.call("GET", "/api/stats")
         self.assertEqual(body["data"]["mastery"], {"points": 1, "passed": 0})
+
+    # -- v0.50：门禁档位随题库规模自适应 --
+    def test_mastery_thresholds_scale(self):
+        small = app.mastery_thresholds(9)
+        self.assertEqual(small["mode"], "small")
+        self.assertEqual(small["min_mistakes"], 2)
+        self.assertEqual(small["min_stability"], 7.0)
+        self.assertEqual(small["total_mistakes"], 9)
+        self.assertEqual(small["scale_at"], app.MASTERY_SCALE_MISTAKES)
+
+        edge = app.mastery_thresholds(app.MASTERY_SCALE_MISTAKES - 1)
+        self.assertEqual(edge["mode"], "small")
+
+        full = app.mastery_thresholds(app.MASTERY_SCALE_MISTAKES)
+        self.assertEqual(full["mode"], "full")
+        self.assertEqual(full["min_mistakes"], app.MASTERY_MIN_MISTAKES)
+        self.assertEqual(full["min_stage"], app.MASTERY_MIN_STAGE)
+        self.assertEqual(full["min_stability"], app.MASTERY_MIN_STABILITY)
+
+        # 接口返回的 thresholds 与库里题量一致
+        self.create(question="档位题", knowledge="导数")
+        _, body = self.call("GET", "/api/mastery")
+        self.assertEqual(body["data"]["thresholds"]["mode"], "small")
+        self.assertEqual(body["data"]["thresholds"]["total_mistakes"], 1)
+
+    # -- v0.50：学科归一（空串 / 未分科 / 未分类 三套写法收敛成一个）--
+    def test_subject_canonicalizes_legacy_values(self):
+        a = self.create(question="空学科题", subject="")
+        b = self.create(question="未分科题", subject="未分科")
+        c = self.create(question="规范题", subject="未分类")
+        self.assertEqual(a["subject"], "未分类")
+        self.assertEqual(b["subject"], "未分类")
+        self.assertEqual(c["subject"], "未分类")
+
+        # 三道题归到同一个桶，facets 里只有一项
+        _, body = self.call("GET", "/api/meta")
+        facets = body["data"]["subject_facets"]
+        names = [f["name"] for f in facets]
+        self.assertEqual(names.count("未分类"), 1)
+        self.assertNotIn("", names)
+        self.assertNotIn("未分科", names)
+        self.assertEqual([f["count"] for f in facets if f["name"] == "未分类"][0], 3)
+
+        # 按「未分类」能筛到全部三道
+        _, body = self.call("GET", "/api/mistakes?subject=" + urllib.parse.quote("未分类"))
+        self.assertEqual(body["data"]["total"], 3)
+
+    # -- v0.50：分析页样本闸 --
+    def test_analytics_sample_gate(self):
+        item = self.create(question="样本题", knowledge="极限")
+        _, body = self.call("GET", "/api/analytics?days=7")
+        sample = body["data"]["sample"]
+        self.assertEqual(sample["mistakes"], 1)
+        self.assertEqual(sample["reviews"], 0)
+        self.assertFalse(sample["enough"])
+        self.assertEqual(sample["need_reviews"], app.ANALYTICS_MIN_REVIEWS)
+        self.assertIn("样本还少", sample["note"])
+
+        # 复习若干次后 reviews 计数上升（仍远少于 20，enough 还是 False）
+        for _ in range(3):
+            self.call("POST", "/api/mistakes/%d/review" % item["id"], {"result": "good"})
+        _, body = self.call("GET", "/api/analytics?days=7")
+        self.assertEqual(body["data"]["sample"]["reviews"], 3)
+        self.assertFalse(body["data"]["sample"]["enough"])
 
     # -- v0.4：CLI 权限模型 --
     def test_mb_read_only_blocks_writes(self):

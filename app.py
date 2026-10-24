@@ -94,6 +94,12 @@ IMAGE_MAGIC = {
 MASTERY_MIN_MISTAKES = 3        # 至少 3 道不同题
 MASTERY_MIN_STAGE = 2           # 每道题连续答对 >= 2 次
 MASTERY_MIN_STABILITY = 21.0    # 每道题 FSRS 稳定性 >= 21 天
+
+# v0.50：题库小的时候用宽松档。9 道题的库里「3 道题 + 连对 2 次 + 稳定性 21 天」
+# 数学上几乎到不了，掌握度会长期恒为 0，指标就失去意义。题攒到 30 道自动回严格档。
+MASTERY_SCALE_MISTAKES = 30
+MASTERY_SMALL = {"min_mistakes": 2, "min_stage": 2, "min_stability": 7.0}
+ANALYTICS_MIN_REVIEWS = 20      # 分析页样本闸：少于这么多条有效复习就不下结论（v0.50）
 ARENA_MIN_WRONG = 2             # 答错 >= 2 次才进再战区（错一次算正常遗忘）
 ARENA_CLEAR_STREAK = 2          # 最近一次答错后连对 >= 2 次就出区
 ARENA_MAX_ITEMS = 200           # 再战区单次返回上限
@@ -360,6 +366,21 @@ def connect(db_path: str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+def migrate_v050(conn: sqlite3.Connection) -> int:
+    """v0.50 数据卫生：把历史遗留的空学科 / 「未分科」收敛成「未分类」。
+
+    v0.50 之前 normalize() 已经默认写「未分类」，但更早的版本写过空串；
+    空串与「未分类」在 facets 与 GROUP BY 里是两个桶，同一批题会被拆开。
+    只补历史、幂等（第二次跑影响 0 行）。
+    """
+    cur = conn.execute("UPDATE mistakes SET subject = '未分类' "
+                       "WHERE subject = '' OR subject IS NULL OR subject = '未分科'")
+    changed = cur.rowcount or 0
+    if changed:
+        conn.commit()
+    return changed
+
+
 def init_db(db_path: str = DB_PATH) -> None:
     conn = connect(db_path)
     try:
@@ -371,6 +392,7 @@ def init_db(db_path: str = DB_PATH) -> None:
         conn.commit()
         migrate_images(conn)
         migrate_image_table(conn)
+        migrate_v050(conn)
     finally:
         conn.close()
 
@@ -614,6 +636,18 @@ def get_mistake(conn: sqlite3.Connection, mid: int) -> dict:
     return data
 
 
+def _canon_subject(value) -> str:
+    """学科归一（v0.50）：空串 / 历史写法「未分科」统一成「未分类」。
+
+    早期版本写过空串，网页端卡片兜底写的是「未分科」，几套写法会让 facets 与
+    GROUP BY 把同一批题拆成两三个桶。库里规范值就是「未分类」，这里只做收敛。
+    """
+    text_value = "" if value is None else str(value).strip()
+    if text_value in ("", "未分科", "未分类"):
+        return "未分类"
+    return text_value
+
+
 def normalize(body: dict, base: dict | None = None) -> dict:
     """校验并归一化可编辑字段。base 提供更新时的兜底值。"""
     base = base or {}
@@ -626,7 +660,7 @@ def normalize(body: dict, base: dict | None = None) -> dict:
             raise ValidationError("字段 %s 必须是字符串" % key)
         return value.strip()
 
-    subject = text("subject") or "未分类"
+    subject = _canon_subject(text("subject"))
     question = text("question")
     if len(question) > 20000:
         raise ValidationError("题目内容过长（上限 20000 字）")
@@ -1029,6 +1063,9 @@ def restore_trash(conn: sqlite3.Connection, trash_id: int) -> dict:
     if not isinstance(payload, dict) or "id" not in payload:
         raise ValidationError("回收站记录已损坏，无法恢复")
 
+    # v0.50：回收站里的历史记录可能带着空学科，恢复时顺手归一，别把脏值放回主表
+    if "subject" in payload:
+        payload["subject"] = _canon_subject(payload.get("subject"))
     cols = [c for c in payload if c != "id"]
     values = [payload[c] for c in cols]
     target = int(payload["id"])
@@ -1447,16 +1484,34 @@ def _band(stability: float) -> dict:
     return {"key": "weak", "label": "薄弱", "stability": round(s, 2)}
 
 
-def _gate(count: int, min_stage: int, min_stability: float):
-    """门禁判定，返回 (是否通过, 未通过原因列表)。"""
+def mastery_thresholds(total_mistakes: int) -> dict:
+    """按题库规模给出门禁档位（v0.50）。
+
+    题库小的时候（< MASTERY_SCALE_MISTAKES 道）用 MASTERY_SMALL，题攒够了自动回严格档。
+    返回值带 mode / total_mistakes / scale_at，前端可以直接解释「为什么现在是宽松档」。
+    """
+    total = max(0, to_int(total_mistakes, 0))
+    if total < MASTERY_SCALE_MISTAKES:
+        th = dict(MASTERY_SMALL)
+        th["mode"] = "small"
+    else:
+        th = {"min_mistakes": MASTERY_MIN_MISTAKES, "min_stage": MASTERY_MIN_STAGE,
+              "min_stability": MASTERY_MIN_STABILITY, "mode": "full"}
+    th["total_mistakes"] = total
+    th["scale_at"] = MASTERY_SCALE_MISTAKES
+    return th
+
+
+def _gate(count: int, min_stage: int, min_stability: float, th: dict):
+    """门禁判定，返回 (是否通过, 未通过原因列表)。th 由 mastery_thresholds() 给。"""
     reasons = []
-    if count < MASTERY_MIN_MISTAKES:
-        reasons.append("题目不足 %d 道（现有 %d 道）" % (MASTERY_MIN_MISTAKES, count))
-    if (min_stage or 0) < MASTERY_MIN_STAGE:
-        reasons.append("有题未连续答对 %d 次（最低 %d 次）" % (MASTERY_MIN_STAGE, min_stage or 0))
-    if (min_stability or 0) < MASTERY_MIN_STABILITY:
+    if count < th["min_mistakes"]:
+        reasons.append("题目不足 %d 道（现有 %d 道）" % (th["min_mistakes"], count))
+    if (min_stage or 0) < th["min_stage"]:
+        reasons.append("有题未连续答对 %d 次（最低 %d 次）" % (th["min_stage"], min_stage or 0))
+    if (min_stability or 0) < th["min_stability"]:
         reasons.append("有题稳定性不足 %g 天（最低 %g 天）"
-                       % (MASTERY_MIN_STABILITY, round(min_stability or 0, 2)))
+                       % (th["min_stability"], round(min_stability or 0, 2)))
     return (not reasons), reasons
 
 
@@ -1791,6 +1846,9 @@ def _merge_tree_stats(a, b):
 def knowledge_tree(conn: sqlite3.Connection, subject: str = "") -> dict:
     """把扁平 knowledge 按 "/" 聚合成树；父节点汇总子节点，口径与 _knowledge_points 一致。"""
     points = _knowledge_points(conn, subject)
+    # v0.50：门禁档位按题库规模定，全树共用一个 th
+    th = mastery_thresholds(conn.execute(
+        "SELECT COUNT(*) FROM mistakes WHERE suspended = 0").fetchone()[0])
 
     roots: dict = {}
     for point in points:
@@ -1821,7 +1879,7 @@ def knowledge_tree(conn: sqlite3.Connection, subject: str = "") -> dict:
             stats = _merge_tree_stats(stats, child["stats"])
         stats = stats or dict(_EMPTY_TREE_STATS, ids=[])
         passed, reasons = _gate(stats["mistakes"], stats["min_stage"] or 0,
-                                stats["min_stability"] or 0)
+                                stats["min_stability"] or 0, th)
         accuracy = (round(stats["correct"] / stats["graded"], 3)
                     if stats["graded"] else None)
         children.sort(key=lambda n: (-n["stats"]["mistakes"], n["path"]))
@@ -1862,6 +1920,9 @@ def _knowledge_points(conn: sqlite3.Connection, subject: str = "") -> list:
     日志按知识点聚合、证据每个点取最后 5 条，靠 knowledge 索引把每步压到毫秒级。
     输出字段与顺序保持原样，调用方（mastery/profile/analytics/knowledge_tree/stats）不用改。
     """
+    # v0.50：同上，门禁档位按题库规模定，逐点共用
+    th = mastery_thresholds(conn.execute(
+        "SELECT COUNT(*) FROM mistakes WHERE suspended = 0").fetchone()[0])
     where = "WHERE m.knowledge <> '' AND m.suspended = 0"
     args = []
     if subject:
@@ -1901,7 +1962,7 @@ def _knowledge_points(conn: sqlite3.Connection, subject: str = "") -> list:
     for r in rows:
         k = r["k"]
         count = r["mistakes"]
-        passed, reasons = _gate(count, r["min_stage"], r["min_stability"])
+        passed, reasons = _gate(count, r["min_stage"], r["min_stability"], th)
         reviews, gd, correct = log_stats.get(k, (0, 0, 0))
         points.append({
             "knowledge": k,
@@ -1928,9 +1989,8 @@ def _knowledge_points(conn: sqlite3.Connection, subject: str = "") -> list:
 def mastery(conn: sqlite3.Connection, subject: str = "") -> dict:
     points = _knowledge_points(conn, subject)
     return {
-        "thresholds": {"min_mistakes": MASTERY_MIN_MISTAKES,
-                       "min_stage": MASTERY_MIN_STAGE,
-                       "min_stability": MASTERY_MIN_STABILITY},
+        "thresholds": mastery_thresholds(conn.execute(
+            "SELECT COUNT(*) FROM mistakes WHERE suspended = 0").fetchone()[0]),
         "bands": {b[1]: b[2] for b in BANDS},
         "band_counts": {b[1]: sum(1 for p in points if p["band"]["key"] == b[1])
                         for b in BANDS},
@@ -2255,8 +2315,20 @@ def analytics(conn: sqlite3.Connection, days: int = 30) -> dict:
         "GROUP BY m.knowledge, l.step HAVING COUNT(*) >= 2 "
         "ORDER BY count DESC, m.knowledge LIMIT 10").fetchall()]
 
+    # v0.50：样本闸 —— 复习条数太少时，比例类结论没有意义，前端据此显示提示条
+    total_mistakes = conn.execute(
+        "SELECT COUNT(*) FROM mistakes WHERE suspended = 0").fetchone()[0]
+    total_reviews = conn.execute(
+        "SELECT COUNT(*) FROM review_logs WHERE rating BETWEEN 2 AND 4").fetchone()[0]
+    enough = total_reviews >= ANALYTICS_MIN_REVIEWS
+    sample = {"mistakes": total_mistakes, "reviews": total_reviews,
+              "enough": enough, "need_reviews": ANALYTICS_MIN_REVIEWS,
+              "note": "" if enough else
+                      ("样本还少：已复习 %d 次，至少 %d 次才看得出趋势，下面的比例先当参考。"
+                       % (total_reviews, ANALYTICS_MIN_REVIEWS))}
     return {
         "generated_at": now_str(), "window_days": days,
+        "sample": sample,
         "trend": trend,
         "trend_totals": {"created": sum(x["created"] for x in trend),
                          "reviewed": sum(x["reviewed"] for x in trend)},

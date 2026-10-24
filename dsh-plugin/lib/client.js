@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.49.0';
+const CLIENT_VERSION = '0.50.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -722,13 +722,24 @@ const CLIENT_VERSION = '0.49.0';
 
     /* ── 新建 / 编辑表单 ─────────────────────────────────────────────── */
 
+    // v0.50：新建时继承上次填过的「分类」字段（学科/知识点/来源/错因/难度）。
+    // 错题录入往往是连续同一章，每题重填一遍最烦。只继承分类，题干/答案/标签不继承 ——
+    // 那三项每题都不同，继承了反而是负担。
+    const LAST_VALUES = {};
+
     function emptyForm(initial) {
       const it = initial || {};
+      const reuse = it.id ? {} : LAST_VALUES;
       return {
-        subject: it.subject || '', question: it.question || '', my_answer: it.my_answer || '',
+        subject: it.subject || reuse.subject || '', question: it.question || '',
+        my_answer: it.my_answer || '',
         answer: it.answer || '', analysis: it.analysis || '', error_reason: it.error_reason || '',
-        mistake_type: it.mistake_type || '', source: it.source || '', knowledge: it.knowledge || '',
-        tags: it.tags || '', difficulty: String(it.difficulty || 3), status: it.status || 'new',
+        mistake_type: it.mistake_type || reuse.mistake_type || '',
+        source: it.source || reuse.source || '',
+        knowledge: it.knowledge || reuse.knowledge || '',
+        tags: it.tags || '',
+        difficulty: String(it.difficulty || reuse.difficulty || 3),
+        status: it.status || 'new',
       };
     }
 
@@ -832,6 +843,14 @@ const CLIENT_VERSION = '0.49.0';
           body.images = images.map((img) => (img.data
             ? { data: img.data, field: fieldOf(img) }
             : { file: img.file, field: fieldOf(img) }));
+        }
+        // v0.50：新建成功提交后记住这批分类值，下次「+ 新增」直接带出来
+        if (!initial || !initial.id) {
+          LAST_VALUES.subject = form.subject;
+          LAST_VALUES.knowledge = form.knowledge;
+          LAST_VALUES.source = form.source;
+          LAST_VALUES.mistake_type = form.mistake_type;
+          LAST_VALUES.difficulty = body.difficulty;
         }
         onSave(body);
       };
@@ -1553,7 +1572,7 @@ const CLIENT_VERSION = '0.49.0';
               h(MathText, { className: 'mb-q', text: qTitle(item, 120) }),
               h('div.mb-tags', null,
                 due ? h('span.mb-badge.overdue', null, due) : null,
-                h('span.mb-tag', null, item.subject || '未分科'),
+                h('span.mb-tag', null, item.subject || '未分类'),
                 item.knowledge ? h('span.mb-tag.k', null, clip(item.knowledge, 16)) : null,
                 item.mistake_type ? h('span.mb-tag', null, item.mistake_type) : null,
                 item.review_count ? h('span.mb-tag.n', null, '复习 ' + item.review_count) : null)),
@@ -2411,6 +2430,8 @@ const CLIENT_VERSION = '0.49.0';
       const types = Array.isArray(report.by_type) ? report.by_type : [];
       const subs = Array.isArray(report.by_subject) ? report.by_subject : [];
       const weakest = Array.isArray(retention.weakest) ? retention.weakest : [];
+      // v0.50：复习条数太少时，比例类结论没有意义 —— 顶上加一条提示，别让数字装成结论
+      const sample = report.sample || null;
 
       // 先把「最近怎么样」算成一句话，图表只是佐证
       const last7 = trend.slice(-7).reduce((sum, row) => sum + (row.reviewed || 0), 0);
@@ -2433,6 +2454,11 @@ const CLIENT_VERSION = '0.49.0';
           h('span.mb-spacer'),
           h('div.mb-seg', null,
             [7, 30, 90].map((n) => h('button', { key: n, type: 'button', className: days === n ? 'on' : '', onClick: () => setDays(n) }, '近 ' + n + ' 天')))),
+
+        sample && !sample.enough
+          ? h('div.mb-note.warn', { style: { marginBottom: '8px' } },
+              sample.note || '样本还少，下面的数字先当参考。')
+          : null,
 
         h('div.mb-hero', null,
           h('div.mb-hero-l', null,
@@ -2886,6 +2912,7 @@ const CLIENT_VERSION = '0.49.0';
       __test__: {
         MistakeBookApp, ListTab, DetailPane, ItemForm, HistoryBlock, VariantsBlock,
         StudyView, PlanView, AnalyticsView, ArenaView, TrashView, BulkDialog, ImportDialog, VocabDialog, CLIENT_VERSION,
+        LAST_VALUES,
         Dropdown, isLightColor, MathText, VocabPanel,
         setPendingListFilter: (patch) => { pendingListFilter = patch; },
       },

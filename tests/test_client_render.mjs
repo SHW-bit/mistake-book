@@ -257,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.49/);
+  assert.match(text, /v0\.50/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -505,6 +505,35 @@ test('新建表单：字段齐全，保存与取消都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-form/);
 });
 
+// v0.50：新建时继承上次填过的分类字段；编辑既有题时不继承
+test('新建表单：继承上次填过的学科/知识点/来源/错因/难度（v0.50）', () => {
+  const { plugin } = loadPlugin([]);
+  Object.assign(plugin.__test__.LAST_VALUES, {
+    subject: '高数', knowledge: '函数/单调性', source: '期中',
+    mistake_type: '计算失误', difficulty: 4,
+  });
+  const meta = Object.assign({}, META, { mistake_types: ['概念不清', '计算失误', '审题错误'] });
+  const dom = render(plugin.__test__.ItemForm({
+    meta, initial: null, onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const values = nodesOf(dom, 'input').map((node) => node.props.value);
+  assert.ok(values.includes('高数'), '学科应继承：' + JSON.stringify(values));
+  assert.ok(values.includes('函数/单调性'), '知识点应继承');
+  assert.ok(values.includes('期中'), '来源应继承');
+  const text = textOf(dom).join('|');
+  assert.match(text, /计算失误/, '错因应继承');
+  assert.match(text, /4 星/, '难度应继承');
+
+  // 编辑既有题：用这道题自己的值，不套上次的新建值
+  const edit = render(plugin.__test__.ItemForm({
+    meta: META, initial: { id: 7, question: '旧题', subject: '英语' },
+    onSave: () => {}, onCancel: () => {}, submitLabel: '保存',
+  }));
+  const editValues = nodesOf(edit, 'input').map((node) => node.props.value);
+  assert.ok(editValues.includes('英语'), '编辑模式应保留原学科');
+  assert.ok(!editValues.includes('高数'), '编辑模式不该被上次新建值污染');
+});
+
 // v0.49：候选只有活词表；示例来自后端只读常量，只拼 placeholder，不进下拉
 test('录入表单：来源下拉只列用过的值，placeholder 用只读示例且优先提示没用过的', () => {
   const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
@@ -714,6 +743,27 @@ test('分析视图：趋势、保持度分桶、薄弱知识点、错因/学科/
 });
 
 // PlanView 的 hooks 顺序：days, limit, subject, report, error, limitNote, limitDraft
+// v0.50：分析页样本不足时，比例类结论前先给一条提示
+test('分析页：样本不足时顶上加提示条，够了就不显示（v0.50）', () => {
+  const base = {
+    trend: [], trend_totals: {}, retention: { counts: [], total: 0 },
+    weak_points: [], by_type: [], by_subject: [], by_step: [], step_patterns: [],
+  };
+  const few = Object.assign({}, base, {
+    sample: { mistakes: 2, reviews: 3, enough: false, need_reviews: 20,
+      note: '样本还少：已复习 3 次，至少 20 次才看得出趋势，下面的比例先当参考。' },
+  });
+  let text = textOf(render(loadPlugin([30, few, '']).plugin.__test__.AnalyticsView({}))).join('|');
+  assert.match(text, /样本还少/);
+  assert.match(text, /至少 20 次/);
+
+  const enough = Object.assign({}, base, {
+    sample: { mistakes: 40, reviews: 60, enough: true, need_reviews: 20, note: '' },
+  });
+  text = textOf(render(loadPlugin([30, enough, '']).plugin.__test__.AnalyticsView({}))).join('|');
+  assert.doesNotMatch(text, /样本还少/);
+});
+
 test('计划页：今日/逾期/窗口内计数与按天分组', () => {
   const report = {
     window_days: 7, daily_limit: 10, today_count: 2, overdue: 1, total: 3, overflow: 0,
