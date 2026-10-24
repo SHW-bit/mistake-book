@@ -125,11 +125,13 @@ function nodesOf(node, tag, out = []) {
 
 const META = {
   subjects: ['高数'], knowledge: ['极限'], mistake_types: ['概念不清'], sources: ['作业'],
-  // v0.48：来源 facets 只有库里真用过的值 —— 内置列表已删除，不再有 count=0 的幽灵项
+  // v0.49：来源 facets 只有库里真用过的值；示例走独立的只读字段 source_hints，
+  // 既不进 facets 也不进下拉 —— 面板里因此不会出现删不掉的幽灵行。
   source_facets: [
     { name: '作业', count: 3 },
     { name: '自编卷', count: 1 },
   ],
+  source_hints: ['作业', '练习册', '周测', '月考', '期中', '期末', '模拟考', '其他'],
   subject_facets: [{ name: '高数', count: 3 }],
   tag_facets: [{ name: '极限', count: 2 }],
 };
@@ -255,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.48/);
+  assert.match(text, /v0\.49/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -503,8 +505,8 @@ test('新建表单：字段齐全，保存与取消都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-form/);
 });
 
-// v0.43/v0.48：来源候选只有活词表 —— 只列库里用过的值并带题量，内置列表已删除
-test('录入表单：来源下拉只列用过的值并带题量，没有内置兜底', () => {
+// v0.49：候选只有活词表；示例来自后端只读常量，只拼 placeholder，不进下拉
+test('录入表单：来源下拉只列用过的值，placeholder 用只读示例且优先提示没用过的', () => {
   const form = { question: '', my_answer: '', answer: '', analysis: '', subject: '',
     knowledge: '', mistake_type: '', source: '', tags: '', difficulty: '3', status: 'new' };
   const dom = render(loadPlugin([form, [], false, '']).plugin.__test__.ItemForm({
@@ -519,9 +521,10 @@ test('录入表单：来源下拉只列用过的值并带题量，没有内置�
   assert.deepEqual(labels, ['作业 · 3 题', '自编卷 · 1 题'], '候选要带题量');
   const input = nodesOf(dom, 'input').find((node) => node.props.list === 'mb-dl-source');
   assert.ok(input, '缺少来源输入框');
-  // v0.48：内置列表删了，placeholder 只是个写法示例，不再从「未使用的内置值」里拼
-  assert.match(input.props.placeholder, /如：期中/);
-  assert.doesNotMatch(input.props.placeholder, /模拟考/, '不该再拿内置值当示例');
+  // v0.49：placeholder 来自 meta.source_hints（后端只读常量），且优先挑还没用过的写法
+  assert.equal(input.props.placeholder, '如：练习册 / 周测 / 月考');
+  assert.doesNotMatch(input.props.placeholder, /作业/, '已经用过的值不该再当示例');
+  assert.deepEqual(values.includes('练习册'), false, '示例不能混进候选');
 });
 
 // v0.44：知识点下拉按层级缩进并带题量 —— 填进输入框的仍然是完整路径，不是缩进后的显示名。

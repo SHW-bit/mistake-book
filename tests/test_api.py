@@ -594,12 +594,18 @@ class ApiTest(unittest.TestCase):
         facets = {f["name"]: f for f in body["data"]["source_facets"]}
         self.assertEqual(facets["周测"]["count"], 2)
         self.assertEqual(facets["自编卷"]["count"], 1)
-        # v0.48：内置来源已删除 —— facets 只有库里真用过的值，没有 count=0 的幽灵项，
-        # 也没有 system 标记（那 8 个内置值以前一直赖在管理面板里删不掉）。
+        # v0.49：facets 只有库里真用过的值 —— 没有 count=0 的幽灵项、没有 system 标记
+        # （那 8 个内置值以前一直赖在管理面板里删不掉）。
         self.assertEqual(sorted(facets), ["周测", "自编卷"])
         for facet in facets.values():
             self.assertNotIn("system", facet)
             self.assertGreater(facet["count"], 0)
+        # 示例走独立字段：只读常量、不落库、不进候选、不参与合并 —— 面板里看不到它们。
+        hints = body["data"]["source_hints"]
+        self.assertEqual(hints, ["作业", "练习册", "周测", "月考",
+                                 "期中", "期末", "模拟考", "其他"])
+        self.assertNotIn("模拟考", body["data"]["sources"])
+        self.assertNotIn("模拟考", facets)
 
     def test_meta_merge_source(self):
         a = self.create(question="来源合并一", source="周测")

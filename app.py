@@ -57,9 +57,13 @@ MISTAKE_TYPES = ("概念不清", "计算失误", "审题错误", "方法不会",
 # 结构化断点（v0.22）：这次错在解题流程的哪一步。用枚举而不是自由文本，
 # 否则「计算错了」「算错」「计算失误」会碎成三堆，易错模式就聚合不出来了。
 REVIEW_STEPS = ("审题", "建模", "计算", "检验", "表达", "记忆")
-# v0.48：内置来源列表已删除。v0.43 起候选就只来自库里真用过的值，但这 8 个一直
-# 被并进 source_facets（count=0、system=True），在管理面板里既占地方又永远清不掉 ——
-# 用户反馈「内置没啥用」。现在来源候选完全由数据生成，删了就真没了。
+# v0.49：来源的「写法示例」与「候选值」彻底分开。
+# 候选 = _field_facets('source')，只来自库里真用过的值（v0.48 起的正确做法）。
+# 示例 = 下面这组只读常量，只经 meta()["source_hints"] 交给前端拼 placeholder。
+# 它不进 facets、不进下拉、不参与合并、不落库、不需要任何治理界面 —— 所以
+# 面板里不会出现删不掉的幽灵行（v0.48 把示例整个删了、改在前端硬编码，等于
+# 换个地方藏常量，这里改回由后端给）。
+SOURCE_EXAMPLES = ("作业", "练习册", "周测", "月考", "期中", "期末", "模拟考", "其他")
 # 复习评分 -> FSRS rating（1=again 2=hard 3=good 4=easy）
 RESULT_RATINGS = {"again": 1, "hard": 2, "good": 3, "easy": 4}
 DEDUP_WINDOW_SEC = 3                       # 防双击重复提交
@@ -1548,8 +1552,8 @@ def _field_facets(conn: sqlite3.Connection, kind: str) -> list:
             "WHERE subject <> '' GROUP BY subject ORDER BY n DESC, subject").fetchall()
         return [{"name": r[0], "count": r[1]} for r in rows]
     if kind == "source":
-        # v0.48：来源走「活词表」，且**只有活词表** —— 候选完全由库里的真实值生成，
-        # 不再有内置值兜底。用过的值按题量降序：题量多的在前 → 最近用过的在前 → 名字。
+        # v0.49：候选**只有活词表** —— 完全由库里的真实值生成，示例常量（SOURCE_EXAMPLES）
+        # 不参与这里。用过的值按题量降序：题量多的在前 → 最近用过的在前 → 名字。
         counts, last_used = {}, {}
         for raw, total, stamp in conn.execute(
                 "SELECT source, COUNT(*), MAX(updated_at) FROM mistakes "
@@ -2679,7 +2683,8 @@ def meta(conn: sqlite3.Connection) -> dict:
     subjects = [f["name"] for f in subject_facets]
     tags = [f["name"] for f in tag_facets]
     facets = knowledge_facets(conn)
-    # v0.48：来源候选只有活词表 —— source_facets 全部 count>0，sources 就是它的名字列。
+    # v0.49：source_facets 只有真数据；source_hints 是只读写法示例，仅给 placeholder 用，
+    # 永远不出现在候选 / 合并 / 统计里（它不来自库，也不写回库）。
     source_facets = _field_facets(conn, "source")
     sources = [f["name"] for f in source_facets]
     return {"subjects": subjects, "tags": tags,
@@ -2694,6 +2699,7 @@ def meta(conn: sqlite3.Connection) -> dict:
             "mistake_types": list(MISTAKE_TYPES),
             "source_facets": source_facets,
             "sources": sources,
+            "source_hints": list(SOURCE_EXAMPLES),
             "settings": get_settings(conn),
             "setting_labels": SETTING_LABELS,
             "papers": list_papers(conn)["papers"],

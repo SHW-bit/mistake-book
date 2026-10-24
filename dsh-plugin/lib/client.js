@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.48.0';
+const CLIENT_VERSION = '0.49.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -842,14 +842,20 @@ const CLIENT_VERSION = '0.48.0';
         (values || []).map((value) => (value && typeof value === 'object'
           ? h('option', { key: value.value, value: value.value, label: value.label })
           : h('option', { key: value, value }))));
-      // 来源的候选只取库里真用过的值（count > 0），按题量降序 —— 这是「活词表」：
-      // 没人用的值自动从下拉里消失，但数据一条不删。
+      // 来源候选 = 活词表：只有库里真用过的值，按题量降序（facets 已保证 count > 0，
+      // 这里不再过滤 —— v0.48 之后那层 filter 恒为真，属于死代码）。
       const sourceOptions = (m) => (((m && m.source_facets) || [])
-        .filter((f) => f && f.count > 0)
         .map((f) => ({ value: f.name, label: f.name + ' · ' + f.count + ' 题' })));
-      // v0.48：内置来源已删除，候选只有库里真用过的值。placeholder 只是写法示例，
-      // 不再从「未使用的内置值」里拼 —— 那样等于换个地方摆内置列表。
-      const sourcePlaceholder = () => '如：期中 / 月考';
+      // v0.49：示例与候选分开 —— 示例来自后端只读常量（meta.source_hints），只拼 placeholder。
+      // 优先提示「还没用过的写法」，都用过了就退回前三个；不写死在前端，免得与常量漂移。
+      const sourcePlaceholder = (m) => {
+        const hints = ((m && m.source_hints) || []).filter(Boolean);
+        const used = {};
+        ((m && m.source_facets) || []).forEach((f) => { if (f && f.name) used[f.name] = 1; });
+        const unused = hints.filter((h) => !used[h]);
+        const pick = (unused.length ? unused : hints).slice(0, 3);
+        return pick.length ? '如：' + pick.join(' / ') : '';
+      };
 
       const blockProps = (field) => ({
         onFocus: () => { activeField.current = field; },
@@ -1901,8 +1907,9 @@ const CLIENT_VERSION = '0.48.0';
     /* ── 词表整理（v0.43）：学科 / 知识点 / 标签 / 来源 的合并与清理 ───── */
 
     // 这四个字段都是自由文本，录久了必然长出「期中 / 期中考 / 期中考试」这种同义值。
-    // 这里给一个集中治理的入口：按题量排序、0 题的标「未使用」、勾选多项并到一个
-    // 规范名，或直接删掉。合并优先于删除 —— 删了下次录入还会再脏。
+    // 这里给一个集中治理的入口：按题量排序、勾选多项并到一个规范名，或直接删掉。
+    // 列表里只有库里真实存在的值（v0.49 起不再有「未使用」这类 0 题幽灵行）。
+    // 合并优先于删除 —— 删了下次录入还会再脏。
     function VocabPanel(props) {
       const KINDS = [
         { key: 'source', label: '来源' },
