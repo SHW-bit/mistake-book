@@ -257,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.46/);
+  assert.match(text, /v0\.47/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -821,23 +821,57 @@ test('学习页：知识点画像、树、别名与变式缺口', () => {
   assert.match(text, /变式缺口/);
 });
 
-// BulkDialog 的 hooks 顺序：fields, busy, error
-test('批量修改：字段与标签方式都在（标签方式与后端 set/add/remove 对齐）', () => {
-  const fields = { status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', source: '', paper_id: '', tags: '', tagsMode: 'add' };
-  const raw = loadPlugin([fields, false, '']).plugin.__test__.BulkDialog({
+// BulkDialog 的 hooks 顺序：field, value, tagMode, log, busy, error
+test('批量修改：一次只改一件事，八行「不改」表单已去掉（v0.47）', () => {
+  const raw = loadPlugin([]).plugin.__test__.BulkDialog({
     ids: [1, 2], meta: META, onClose: () => {}, onDone: () => {},
   });
-  const dom = render(raw);
-  const text = textOf(dom).join('|');
+  const text = textOf(render(raw)).join('|');
   assert.match(text, /批量修改 · 2 道/);
+  assert.match(text, /改哪一项/);
+  assert.match(text, /改成/);
+  assert.ok(!text.includes('不改'), '不该再出现一排「不改」');
+  // 八个可改字段都在「改哪一项」的下拉里，一个不少
+  const labels = dropdownLabels(raw);
+  ['知识点', '标签', '学科', '来源', '试卷', '状态', '错因', '难度'].forEach((name) => {
+    assert.ok(labels.includes(name), '改哪一项缺字段：' + name);
+  });
+});
+
+test('批量修改：标签有独立的方式开关，且与后端 set/add/remove 对齐', () => {
+  const raw = loadPlugin(['tags']).plugin.__test__.BulkDialog({
+    ids: [1, 2], meta: META, onClose: () => {}, onDone: () => {},
+  });
+  const text = textOf(render(raw)).join('|');
   assert.match(text, /标签方式/);
-  assert.match(text, /来源/);
-  assert.match(text, /试卷/);
   const labels = dropdownLabels(raw);
   assert.ok(labels.includes('追加到原有'), '缺标签方式选项：追加到原有');
   assert.ok(labels.includes('替换原有'), '缺标签方式选项：替换原有');
   assert.ok(labels.includes('从原有移除'), '缺标签方式选项：从原有移除');
   assert.ok(!labels.includes('覆盖'), '标签方式不该再有「覆盖」（后端不认 replace）');
+});
+
+test('批量修改：改完留在窗口里记流水，不用重新勾题（v0.47）', () => {
+  const raw = loadPlugin(['knowledge', '', 'add', ['知识点 → 函数（2 道）'], false, '']).plugin.__test__.BulkDialog({
+    ids: [1, 2], meta: META, onClose: () => {}, onDone: () => {},
+  });
+  const text = textOf(render(raw)).join('|');
+  assert.match(text, /知识点 → 函数（2 道）/);
+  assert.match(text, /应用到这 2 道/);
+  assert.match(text, /完成/);
+});
+
+test('批量修改：字段切到标签时值控件换成方式开关（不再是文本框）', () => {
+  const raw = loadPlugin(['tags']).plugin.__test__.BulkDialog({
+    ids: [1], meta: META, onClose: () => {}, onDone: () => {},
+  });
+  const labels = dropdownLabels(raw);
+  // 知识点档没有「标签方式」，标签档才有
+  const plain = loadPlugin(['knowledge']).plugin.__test__.BulkDialog({
+    ids: [1], meta: META, onClose: () => {}, onDone: () => {},
+  });
+  assert.ok(!dropdownLabels(plain).includes('追加到原有'), '知识点档不该出现标签方式');
+  assert.ok(labels.includes('追加到原有'));
 });
 
 // ImportDialog 的 hooks 顺序：text, report, busy

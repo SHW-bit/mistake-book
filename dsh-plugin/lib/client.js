@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.46.0';
+const CLIENT_VERSION = '0.47.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -1688,6 +1688,8 @@ const CLIENT_VERSION = '0.46.0';
         bulkOpen ? h(BulkDialog, {
           ids: pickedIds, meta,
           onClose: () => setBulkOpen(false),
+          // v0.47：改完不关窗，只把列表刷一遍 —— 接着改下一项不用重新勾题
+          onApplied: () => { void load(); },
           onDone: () => { setBulkOpen(false); setPicked({}); void load(); },
         }) : null,
         importOpen ? h(ImportDialog, {
@@ -1701,84 +1703,136 @@ const CLIENT_VERSION = '0.46.0';
 
     /* ── 批量修改 / 批量导入 ─────────────────────────────────────────── */
 
+    // v0.47：旧版是 8 行「不改」的表单 —— 想改一项得先扫完八行才知道能改什么，
+    // 改完还立刻关窗，连着改两个字段要重新勾一遍。批量修改本来就是「连着做几件小事」，
+    // 所以改成一次只改一件事：选字段 → 填值 → 应用，窗口不关，底下记流水。
+    const BULK_FIELDS = [
+      { key: 'knowledge', label: '知识点', kind: 'text', hint: '如 函数/单调性' },
+      { key: 'tags', label: '标签', kind: 'text', hint: '逗号分隔，如 极限,洛必达' },
+      { key: 'subject', label: '学科', kind: 'text', hint: '如 高数' },
+      { key: 'source', label: '来源', kind: 'text', hint: '如 期中' },
+      { key: 'paper_id', label: '试卷', kind: 'paper' },
+      { key: 'status', label: '状态', kind: 'status' },
+      { key: 'mistake_type', label: '错因', kind: 'type' },
+      { key: 'difficulty', label: '难度', kind: 'level' },
+    ];
+
     function BulkDialog(props) {
       const { ids, meta, onClose, onDone } = props;
-      const [fields, setFields] = useState({ status: '', subject: '', mistake_type: '', knowledge: '', difficulty: '', source: '', paper_id: '', tags: '', tagsMode: 'add' });
+      // hooks 顺序：field, value, tagMode, log, busy, error
+      const [field, setField] = useState('knowledge');
+      const [value, setValue] = useState('');
+      const [tagMode, setTagMode] = useState('add');
+      const [log, setLog] = useState([]);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
 
+      const spec = BULK_FIELDS.filter((item) => item.key === field)[0] || BULK_FIELDS[0];
+
+      // 候选复用 /api/meta 的 facets：跟录入表单看的是同一份数据，不会这里能选那里不能。
+      const hints = (() => {
+        if (!meta) return [];
+        const withCount = (list) => (list || []).map((facet) => ({
+          value: facet.name,
+          label: facet.name + (facet.count ? ' · ' + facet.count + ' 题' : ''),
+        }));
+        if (field === 'knowledge') {
+          return knowledgeFacets(meta).map((facet) => ({ value: facet.path, label: facetLabel(facet) }));
+        }
+        if (field === 'subject') {
+          return meta.subject_facets ? withCount(meta.subject_facets)
+            : (meta.subjects || []).map((name) => ({ value: name, label: name }));
+        }
+        if (field === 'source') return withCount(meta.source_facets);
+        if (field === 'tags') return withCount(meta.tag_facets);
+        return [];
+      })();
+
       const apply = async () => {
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) { setError('先填要改成什么'); return; }
         const body = {};
-        if (fields.status) body.status = fields.status;
-        if (fields.subject.trim()) body.subject = fields.subject.trim();
-        if (fields.mistake_type) body.mistake_type = fields.mistake_type;
-        if (fields.knowledge.trim()) body.knowledge = fields.knowledge.trim();
-        if (fields.source.trim()) body.source = fields.source.trim();
-        if (fields.paper_id) body.paper_id = Number(fields.paper_id);
-        if (fields.difficulty) body.difficulty = Number(fields.difficulty);
-        if (fields.tags.trim()) { body.tags = fields.tags.trim(); body.tags_mode = fields.tagsMode; }
-        if (!Object.keys(body).length) { setError('至少选一项要改的内容'); return; }
-        setBusy(true);
+        body[spec.key] = (spec.key === 'paper_id' || spec.key === 'difficulty') ? Number(raw) : raw;
+        if (spec.key === 'tags') body.tags_mode = tagMode;
+        setBusy(true); setError('');
         try {
-          await data('/api/mistakes/bulk-update', { method: 'POST', body: JSON.stringify({ ids, fields: body }) });
-          onDone();
+          const result = await data('/api/mistakes/bulk-update', {
+            method: 'POST', body: JSON.stringify({ ids, fields: body }) });
+          const done = (result && result.updated) || ids.length;
+          setLog((old) => old.concat([spec.label + ' → ' + raw + '（' + done + ' 道）']));
+          setValue('');
+          if (props.onApplied) props.onApplied();
         } catch (failure) { setError(errText(failure)); } finally { setBusy(false); }
       };
+
+      const valueControl = (() => {
+        if (spec.kind === 'status') {
+          return h(Dropdown, {
+            value, placeholder: '选一个状态',
+            options: [{ value: 'new', label: '未复习' }, { value: 'reviewing', label: '复习中' },
+              { value: 'mastered', label: '已掌握' }],
+            onChange: setValue,
+          });
+        }
+        if (spec.kind === 'type') {
+          return h(Dropdown, {
+            value, placeholder: '选一个错因',
+            options: ((meta && meta.mistake_types) || []).map((name) => ({ value: name, label: name })),
+            onChange: setValue,
+          });
+        }
+        if (spec.kind === 'level') {
+          return h(Dropdown, {
+            value, placeholder: '选难度',
+            options: [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + ' 星' })),
+            onChange: setValue,
+          });
+        }
+        if (spec.kind === 'paper') {
+          return h(Dropdown, {
+            value, placeholder: '选一张卷',
+            options: ((meta && meta.papers) || []).map((paper) => ({
+              value: String(paper.id), label: paper.name || ('#' + paper.id) })),
+            onChange: setValue,
+          });
+        }
+        return h('input', {
+          value, placeholder: spec.hint || '',
+          list: hints.length ? 'mb-bulk-dl' : undefined,
+          onChange: (e) => setValue(e.target.value),
+        });
+      })();
 
       return h('div.mb-mask', { onClick: onClose },
         h('div.mb-dlg', { onClick: (e) => e.stopPropagation() },
           h('h3', null, '批量修改 · ' + ids.length + ' 道'),
           h('div.mb-form', { style: { padding: '0' } },
             h('div.mb-row2', null,
-              h('div.mb-field', null, h('span', null, '状态'),
+              h('div.mb-field', null, h('span', null, '改哪一项'),
                 h(Dropdown, {
-                  value: fields.status, placeholder: '不改',
-                  options: [{ value: '', label: '不改' }, { value: 'new', label: '未复习' },
-                    { value: 'reviewing', label: '复习中' }, { value: 'mastered', label: '已掌握' }],
-                  onChange: (value) => setFields(Object.assign({}, fields, { status: value })),
+                  value: field,
+                  options: BULK_FIELDS.map((item) => ({ value: item.key, label: item.label })),
+                  onChange: (next) => { setField(next); setValue(''); setError(''); },
                 })),
-              h('div.mb-field', null, h('span', null, '学科'),
-                h('input', { value: fields.subject, onChange: (e) => setFields(Object.assign({}, fields, { subject: e.target.value })) }))),
-            h('div.mb-row2', null,
-              h('div.mb-field', null, h('span', null, '错因分类'),
-                h(Dropdown, {
-                  value: fields.mistake_type, placeholder: '不改',
-                  options: [{ value: '', label: '不改' }].concat(
-                    ((meta && meta.mistake_types) || []).map((name) => ({ value: name, label: name }))),
-                  onChange: (value) => setFields(Object.assign({}, fields, { mistake_type: value })),
-                })),
-              h('div.mb-field', null, h('span', null, '知识点'),
-                h('input', { value: fields.knowledge, onChange: (e) => setFields(Object.assign({}, fields, { knowledge: e.target.value })) }))),
-            h('div.mb-row2', null,
-              h('div.mb-field', null, h('span', null, '难度'),
-                h(Dropdown, {
-                  value: fields.difficulty, placeholder: '不改',
-                  options: [{ value: '', label: '不改' }].concat(
-                    [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + ' 星' }))),
-                  onChange: (value) => setFields(Object.assign({}, fields, { difficulty: value })),
-                })),
-              h('div.mb-field', null, h('span', null, '标签'),
-                h('input', { value: fields.tags, onChange: (e) => setFields(Object.assign({}, fields, { tags: e.target.value })), placeholder: '逗号分隔' }))),
-            h('div.mb-row2', null,
-              h('div.mb-field', null, h('span', null, '来源'),
-                h('input', { value: fields.source, onChange: (e) => setFields(Object.assign({}, fields, { source: e.target.value })), placeholder: '如 期中、练习册' })),
-              h('div.mb-field', null, h('span', null, '试卷'),
-                h(Dropdown, {
-                  value: fields.paper_id, placeholder: '不改',
-                  options: [{ value: '', label: '不改' }].concat(
-                    ((meta && meta.papers) || []).map((paper) => ({ value: String(paper.id), label: paper.name || ('#' + paper.id) }))),
-                  onChange: (value) => setFields(Object.assign({}, fields, { paper_id: value })),
-                }))),
-            h('div.mb-field', null, h('span', null, '标签方式'),
-              h(Dropdown, {
-                value: fields.tagsMode,
-                options: [{ value: 'add', label: '追加到原有' }, { value: 'set', label: '替换原有' }, { value: 'remove', label: '从原有移除' }],
-                onChange: (value) => setFields(Object.assign({}, fields, { tagsMode: value })),
-              })),
+              spec.key === 'tags'
+                ? h('div.mb-field', null, h('span', null, '标签方式'),
+                    h(Dropdown, {
+                      value: tagMode,
+                      options: [{ value: 'add', label: '追加到原有' }, { value: 'set', label: '替换原有' },
+                        { value: 'remove', label: '从原有移除' }],
+                      onChange: setTagMode,
+                    }))
+                : null),
+            h('div.mb-field', null, h('span', null, '改成'), valueControl),
+            hints.length ? h('datalist', { id: 'mb-bulk-dl' },
+              hints.map((item) => h('option', { key: item.value, value: item.value, label: item.label }))) : null,
+            log.length ? h('div.mb-note', { style: { marginTop: '6px' } },
+              log.map((line, index) => h('div', { key: index }, '✓ ' + line))) : null,
             error ? h('div.mb-note.bad', null, error) : null,
             h('div.mb-formfoot', null,
-              h('button.mb-btn.primary', { type: 'button', onClick: () => void apply(), disabled: busy }, busy ? '修改中…' : '应用'),
-              h('button.mb-btn', { type: 'button', onClick: onClose, disabled: busy }, '取消')))));
+              h('button.mb-btn.primary', { type: 'button', onClick: () => void apply(), disabled: busy },
+                busy ? '修改中…' : '应用到这 ' + ids.length + ' 道'),
+              h('button.mb-btn', { type: 'button', onClick: onDone, disabled: busy }, '完成')))));
     }
 
     function ImportDialog(props) {
