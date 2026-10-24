@@ -40,7 +40,7 @@
 | GET | `/api/arena?subject=&limit=&show=` | 再战区：`show=zone`（默认，在战区）或 `cleared`（已出区）；返回 `rule/counts/total/items`，每条带 `wrong_count/correct_streak/need_streak/accuracy/last_result` |
 | GET | `/api/settings` | 再战区阈值：`values/labels/bounds`（v0.12） |
 | PUT / POST | `/api/settings` | 保存阈值，body `{"arena_min_wrong": 3, "arena_clear_streak": 2, "daily_limit": 20}`；前两个 1–20，`daily_limit` 1–200 |
-| GET | `/api/trash?limit=` | 回收站列表：`items`（`id/mistake_id/subject/question/log_count/deleted_at`）+ `total`，默认 50 条 |
+| GET | `/api/trash?limit=` | 回收站列表：`items`（`id/mistake_id/subject/question/log_count/image_count/deleted_at`）+ `total`，默认 50 条 |
 | POST | `/api/trash/{id}/restore` | 从回收站恢复；原 id 空闲则沿用，被占用则分配新 id 并重映射复习日志 |
 | DELETE | `/api/trash/{id}` | 彻底删除一条回收站记录 |
 | POST | `/api/trash/purge` | 清空回收站 |

@@ -257,7 +257,9 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.51/);
+  // 版本号每版都会变，从 CLIENT_VERSION 推出来，别每版回来改这一行
+  const shown = 'v' + plugin.__test__.CLIENT_VERSION.split('.').slice(0, 2).join('.');
+  assert.ok(text.includes(shown), '标题旁应显示 ' + shown);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。

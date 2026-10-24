@@ -2015,6 +2015,71 @@ class ApiTest(unittest.TestCase):
         _, body = self.call("GET", "/api/meta")
         self.assertEqual(body["data"]["trash_count"], 1)
 
+    def test_delete_cascades_images_and_restore_brings_them_back(self):
+        # v0.52：删题要连带清掉 mistake_images 行，否则库里留孤儿；
+        # 但图片关联必须先存进回收站，恢复时才能原样写回。
+        item = self.create(question="带图要删的题", images=[
+            {"data": PNG_A, "field": "answer"},
+            {"data": PNG_B, "field": "analysis"},
+        ])
+        mid = item["id"]
+        files = [img["file"] for img in item["images"]]
+        fields = [img["field"] for img in item["images"]]
+
+        conn = app.connect(self.db)
+        try:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM mistake_images WHERE mistake_id = ?", (mid,)).fetchone()[0], 2)
+        finally:
+            conn.close()
+
+        status, body = self.call("DELETE", "/api/mistakes/%d" % mid)
+        self.assertEqual(status, 200, body)
+
+        conn = app.connect(self.db)
+        try:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM mistake_images WHERE mistake_id = ?", (mid,)).fetchone()[0], 0)
+        finally:
+            conn.close()
+
+        _, body = self.call("GET", "/api/trash")
+        entry = body["data"]["items"][0]
+        self.assertEqual(entry["image_count"], 2)
+
+        status, body = self.call("POST", "/api/trash/%d/restore" % entry["id"])
+        self.assertEqual(status, 200, body)
+        restored = body["data"]
+        self.assertEqual([i["file"] for i in restored["images"]], files)
+        self.assertEqual([i["field"] for i in restored["images"]], fields)
+        self.assertTrue(restored["has_image"])
+
+    def test_trash_keeps_review_evidence(self):
+        # v0.51 的诊断留证（学生答案 / 提示次数 / 判定）不能因为删题再恢复就丢
+        mid = self.create(question="带留证要删的题")["id"]
+        status, body = self.call("POST", "/api/mistakes/%d/review" % mid, {
+            "rating": "hard", "step": "计算",
+            "student_answer": "我算到 1/2", "hints": 2, "judgement": "第二步符号错",
+        })
+        self.assertEqual(status, 200, body)
+
+        status, body = self.call("DELETE", "/api/mistakes/%d" % mid)
+        self.assertEqual(status, 200, body)
+        _, body = self.call("GET", "/api/trash")
+        entry = body["data"]["items"][0]
+        self.assertEqual(entry["log_count"], 1)
+
+        status, body = self.call("POST", "/api/trash/%d/restore" % entry["id"])
+        self.assertEqual(status, 200, body)
+
+        _, body = self.call("GET", "/api/mistakes/%d/reviews" % mid)
+        logs = body["data"]["items"]
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0]["student_answer"], "我算到 1/2")
+        self.assertEqual(logs[0]["hints"], 2)
+        self.assertEqual(logs[0]["judgement"], "第二步符号错")
+        self.assertEqual(logs[0]["step"], "计算")
+
     def test_batch_delete_returns_real_count(self):
         a = self.create(question="批删 A")["id"]
         b = self.create(question="批删 B")["id"]

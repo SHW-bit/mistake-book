@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS trash (
     question    TEXT    NOT NULL DEFAULT '',
     payload     TEXT    NOT NULL,
     logs        TEXT    NOT NULL DEFAULT '[]',
+    images      TEXT    NOT NULL DEFAULT '[]',
     deleted_at  TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trash_deleted ON trash(id DESC);
@@ -285,6 +286,8 @@ MIGRATIONS = (
     ("review_logs", "student_answer", "TEXT NOT NULL DEFAULT ''"),
     ("review_logs", "hints", "INTEGER NOT NULL DEFAULT -1"),
     ("review_logs", "judgement", "TEXT NOT NULL DEFAULT ''"),
+    # v0.52：回收站要能连图片一起存，否则删题再恢复会丢图
+    ("trash", "images", "TEXT NOT NULL DEFAULT '[]'"),
 )
 
 
@@ -977,26 +980,35 @@ def update_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
 
 
 def _snapshot_for_trash(conn: sqlite3.Connection, mid: int):
-    """取一行错题 + 它的复习日志，供回收站存档。返回 (row_dict, logs) 或 None。"""
+    """取一行错题 + 复习日志 + 图片关联，供回收站存档。
+
+    v0.52 起图片关联也进快照：删题会连带删掉 mistake_images 行，不在回收站里存一份
+    就恢复不回来。返回 (row_dict, logs, images) 或 None。
+    """
     row = conn.execute("SELECT * FROM mistakes WHERE id = ?", (mid,)).fetchone()
     if row is None:
         return None
     logs = [dict(r) for r in conn.execute(
-        "SELECT result, rating, stage, interval_days, fsrs_stability, fsrs_difficulty, reviewed_at "
+        "SELECT result, rating, step, stage, interval_days, fsrs_stability, fsrs_difficulty, "
+        "reviewed_at, student_answer, hints, judgement "
         "FROM review_logs WHERE mistake_id = ? ORDER BY id", (mid,)).fetchall()]
-    return dict(row), logs
+    images = [{"file": r["file"], "field": r["field"] or ""} for r in conn.execute(
+        "SELECT file, field FROM mistake_images WHERE mistake_id = ? ORDER BY sort, id",
+        (mid,)).fetchall()]
+    return dict(row), logs, images
 
 
 def _push_trash(conn: sqlite3.Connection, mid: int) -> bool:
     snap = _snapshot_for_trash(conn, mid)
     if snap is None:
         return False
-    row, logs = snap
+    row, logs, images = snap
     conn.execute(
-        "INSERT INTO trash (mistake_id, subject, question, payload, logs, deleted_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO trash (mistake_id, subject, question, payload, logs, images, deleted_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (mid, row["subject"], row["question"],
-         json.dumps(row, ensure_ascii=False), json.dumps(logs, ensure_ascii=False), now_str()))
+         json.dumps(row, ensure_ascii=False), json.dumps(logs, ensure_ascii=False),
+         json.dumps(images, ensure_ascii=False), now_str()))
     return True
 
 
@@ -1011,6 +1023,7 @@ def delete_mistake(conn: sqlite3.Connection, mid: int) -> None:
         raise NotFound("错题不存在: id=%d" % mid)
     conn.execute("DELETE FROM mistakes WHERE id = ?", (mid,))
     conn.execute("DELETE FROM review_logs WHERE mistake_id = ?", (mid,))
+    conn.execute("DELETE FROM mistake_images WHERE mistake_id = ?", (mid,))
     _prune_trash(conn)
     conn.commit()
 
@@ -1033,6 +1046,7 @@ def delete_mistakes(conn: sqlite3.Connection, ids) -> dict:
             continue
         conn.execute("DELETE FROM mistakes WHERE id = ?", (mid,))
         conn.execute("DELETE FROM review_logs WHERE mistake_id = ?", (mid,))
+        conn.execute("DELETE FROM mistake_images WHERE mistake_id = ?", (mid,))
         deleted += 1
     _prune_trash(conn)
     conn.commit()
@@ -1042,7 +1056,7 @@ def delete_mistakes(conn: sqlite3.Connection, ids) -> dict:
 def list_trash(conn: sqlite3.Connection, limit: int = 50) -> dict:
     limit = max(1, min(int(limit), 200))
     rows = conn.execute(
-        "SELECT id, mistake_id, subject, question, logs, deleted_at FROM trash "
+        "SELECT id, mistake_id, subject, question, logs, images, deleted_at FROM trash "
         "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     items = []
     for row in rows:
@@ -1050,9 +1064,14 @@ def list_trash(conn: sqlite3.Connection, limit: int = 50) -> dict:
             log_count = len(json.loads(row["logs"] or "[]"))
         except (TypeError, ValueError):
             log_count = 0
+        try:
+            image_count = len(json.loads(row["images"] or "[]"))
+        except (TypeError, ValueError):
+            image_count = 0
         items.append({"id": row["id"], "mistake_id": row["mistake_id"],
                       "subject": row["subject"], "question": row["question"],
-                      "log_count": log_count, "deleted_at": row["deleted_at"]})
+                      "log_count": log_count, "image_count": image_count,
+                      "deleted_at": row["deleted_at"]})
     total = conn.execute("SELECT COUNT(*) FROM trash").fetchone()[0]
     return {"items": items, "total": total}
 
@@ -1065,6 +1084,7 @@ def restore_trash(conn: sqlite3.Connection, trash_id: int) -> dict:
     try:
         payload = json.loads(row["payload"])
         logs = json.loads(row["logs"] or "[]")
+        images = json.loads(row["images"] or "[]") if "images" in row.keys() else []
     except (TypeError, ValueError):
         raise ValidationError("回收站记录已损坏，无法恢复")
     if not isinstance(payload, dict) or "id" not in payload:
@@ -1089,13 +1109,23 @@ def restore_trash(conn: sqlite3.Connection, trash_id: int) -> dict:
     for log in logs:
         if not isinstance(log, dict):
             continue
+        # v0.51 起日志多了三个留证字段；老快照没有这些键，.get 兜默认值
         conn.execute(
-            "INSERT INTO review_logs (mistake_id, result, rating, stage, interval_days, "
-            "fsrs_stability, fsrs_difficulty, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO review_logs (mistake_id, result, rating, step, stage, interval_days, "
+            "fsrs_stability, fsrs_difficulty, reviewed_at, student_answer, hints, judgement) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (target, log.get("result") or "", int(log.get("rating") or 0),
-             int(log.get("stage") or 0), int(log.get("interval_days") or 0),
+             str(log.get("step") or ""), int(log.get("stage") or 0),
+             int(log.get("interval_days") or 0),
              float(log.get("fsrs_stability") or 0), float(log.get("fsrs_difficulty") or 0),
-             log.get("reviewed_at") or now_str()))
+             log.get("reviewed_at") or now_str(),
+             str(log.get("student_answer") or ""), int(log.get("hints", -1)),
+             str(log.get("judgement") or "")))
+    # v0.52：图片关联一并写回（文件本身是内容寻址的，没被删过）。
+    # 只有快照里确实记了图片才动 mistake_images：迁移前的老回收站记录没有这一列，
+    # 而那时删题并没有级联删图片行，无条件 _set_images 反而会把还在的关联清空。
+    if images:
+        _set_images(conn, target, [entry for entry in images if isinstance(entry, dict)])
     conn.execute("DELETE FROM trash WHERE id = ?", (trash_id,))
     conn.commit()
     return get_mistake(conn, target)

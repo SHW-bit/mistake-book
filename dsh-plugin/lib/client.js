@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.51.0';
+const CLIENT_VERSION = '0.52.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
