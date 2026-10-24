@@ -397,6 +397,18 @@ function reviewTool(config) {
           type: 'string',
           description: '变式题知识点（可选，留空则继承母题）',
         },
+        student_answer: {
+          type: 'string',
+          description: '学生这次的作答原文（可选；v0.51 起入库，供事后诊断「错在哪一步」）',
+        },
+        hints: {
+          type: 'integer',
+          description: '这次用了几级提示才做出来：0=没提示自己做对，1-3=提示级别，不传=未记录（可选）',
+        },
+        judgement: {
+          type: 'string',
+          description: '判分依据：一句话说明为什么给这个 rating（可选）',
+        },
       },
       required: ['id', 'rating'],
     },
@@ -428,6 +440,16 @@ function reviewTool(config) {
         if (vAnswer) body.variant_answer = vAnswer;
         if (vKnowledge) body.variant_knowledge = vKnowledge;
       }
+      // v0.51：判分留证。以前只存一个 rating，事后没法回答「这次错和上次是同一个原因吗」。
+      // 三个字段都可选，不传就不发，老服务也不会因为多字段报错（服务端只读认识的键）。
+      const studentAnswer = String(args.student_answer || '').trim();
+      if (studentAnswer) body.student_answer = studentAnswer;
+      if (args.hints !== undefined && args.hints !== null && args.hints !== '') {
+        const hints = clampInt(args.hints, -1, -1, 3);
+        if (hints >= 0) body.hints = hints;
+      }
+      const judgement = String(args.judgement || '').trim();
+      if (judgement) body.judgement = judgement;
       const data = await call(s, '/api/mistakes/' + id + '/review', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -446,6 +468,12 @@ function reviewTool(config) {
       } else if (vQuestion) {
         lines.push('变式未入库：服务端没有回执（可能已达单题变式上限，或服务端版本过旧）');
       }
+      // v0.51：把「留了什么证」回显一句，agent 才知道这次判分有没有落库。
+      const kept = [];
+      if (studentAnswer) kept.push('作答 ' + studentAnswer.length + ' 字');
+      if (typeof body.hints === 'number') kept.push(body.hints === 0 ? '零提示' : body.hints + ' 级提示');
+      if (judgement) kept.push('判分依据');
+      if (kept.length) lines.push('已留证：' + kept.join(' · '));
       return { text: lines.join('\n') };
     },
   };
@@ -978,6 +1006,84 @@ function suggestTool(config) {
   };
 }
 
+/**
+ * v0.51 AI 学习简报：今天最该练哪几道 + 为什么。
+ * 后端 /api/brief 已经算好排序与理由，这里只负责排版成人话 ——
+ * 模型拿到「逾期 3 天」「第 4 次错在计算」这类句子才讲得出诊断，拿到裸数字只能念报表。
+ */
+function briefTool(config) {
+  return {
+    name: 'mb_brief',
+    description: '生成今日学习简报：今天最该练的几道题（带「为什么是它」的理由）、反复栽的断点、最弱知识点。复习开场先调它，比 mb_due 只给清单更有指导性。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        days: { type: 'integer', description: '统计窗口天数，默认 14，范围 7-90' },
+        limit: { type: 'integer', description: '最多挑几道，默认 3，范围 1-10' },
+      },
+      required: [],
+    },
+    output: out(),
+    async execute(args) {
+      const s = settings(config);
+      const days = clampInt(args.days, 14, 7, 90);
+      const limit = clampInt(args.limit, 3, 1, 10);
+      const data = await call(s, '/api/brief' + query({ days, limit }));
+      const counts = data.counts || {};
+      const items = Array.isArray(data.items) ? data.items : [];
+      const patterns = Array.isArray(data.patterns) ? data.patterns : [];
+      const weak = Array.isArray(data.weak_points) ? data.weak_points : [];
+      const lines = ['AI 学习简报 · 近 ' + (data.window_days || days) + ' 天'];
+
+      const head = '今天到期 ' + (counts.due_today || 0) + ' 道';
+      const extra = [];
+      if (counts.overdue) extra.push('逾期 ' + counts.overdue + ' 道');
+      extra.push('在库活跃 ' + (counts.active || 0) + ' 道');
+      lines.push(head + '（' + extra.join(' · ') + '）');
+      if (counts.graded_with_hints) {
+        const rate = typeof counts.hint_free_correct === 'number'
+          ? Math.round(counts.hint_free_correct * 100) : null;
+        lines.push('零提示做对率：' + (rate === null ? '—' : rate + '%')
+          + '（' + counts.graded_with_hints + ' 次有记录）');
+      } else {
+        lines.push('零提示做对率：还没有记录（用 mb_review 的 hints 参数记一次就有了）');
+      }
+
+      lines.push('', items.length ? '今天最该练：' : '今天没有到期题。');
+      for (const item of items) {
+        lines.push('  #' + item.id + ' [' + (item.subject || '未分类')
+          + (item.knowledge ? ' · ' + item.knowledge : '') + '] '
+          + clip(item.question, 60));
+        if (item.reason) lines.push('     为什么：' + item.reason);
+      }
+
+      if (patterns.length) {
+        lines.push('', '反复栽的断点：');
+        for (const row of patterns) {
+          lines.push('  「' + (row.knowledge || '?') + '」第 ' + (row.count || 0)
+            + ' 次错在「' + (row.step || '?') + '」');
+        }
+      }
+
+      if (weak.length) {
+        lines.push('', '最弱的知识点：');
+        for (const point of weak) {
+          const accuracy = typeof point.accuracy === 'number'
+            ? Math.round(point.accuracy * 100) + '%' : '—';
+          lines.push('  「' + (point.knowledge || '?') + '」正确率 ' + accuracy
+            + '（' + (point.mistakes || 0) + ' 道 / ' + (point.graded || 0) + ' 次）');
+        }
+      }
+
+      if (data.note) lines.push('', '建议：' + data.note);
+      const sample = data.sample;
+      if (sample && sample.enough === false && sample.note) lines.push('（' + sample.note + '）');
+      return { text: lines.join('\n') };
+    },
+  };
+}
+
 function mergeTool(config) {
   return {
     name: 'mb_merge',
@@ -1031,7 +1137,7 @@ function mergeTool(config) {
  * @param {any} config 插件行 config 段（url / home / python）。
  */
 export function apply(ctx, config) {
-  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, statsTool,
+  const builders = [dueTool, searchTool, getTool, addTool, reviewTool, briefTool, statsTool,
     weakStepsTool, eventsTool, batchTool, paperTool, reportTool, suggestTool, mergeTool];
   for (const build of builders) ctx.tools.register(build(config));
 }

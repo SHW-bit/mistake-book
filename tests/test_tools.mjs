@@ -47,11 +47,11 @@ function tools() {
   return { list: registered, map };
 }
 
-test('注册 13 个工具，名字不重复', () => {
+test('注册 14 个工具，名字不重复', () => {
   const { list } = tools();
   const names = list.map((item) => item.name).sort();
-  assert.equal(names.length, 13);
-  assert.deepEqual(names, ['mb_add', 'mb_batch', 'mb_due', 'mb_events', 'mb_get',
+  assert.equal(names.length, 14);
+  assert.deepEqual(names, ['mb_add', 'mb_batch', 'mb_brief', 'mb_due', 'mb_events', 'mb_get',
     'mb_merge', 'mb_paper', 'mb_report', 'mb_review', 'mb_search', 'mb_stats',
     'mb_suggest', 'mb_weak_steps']);
 });
@@ -605,6 +605,113 @@ test('mb_suggest：父子节点不算重复，只有写法不一致才算', asyn
     assert.doesNotMatch(value.text, /「函数\/单调性」2 道 ≈ 「函数」/);
     // 「函数 极限」与「函数/极限」只是分隔符写法不同，必须报出来
     assert.match(value.text, /「函数 极限」1 道 ≈ 「函数\/极限」4 道/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_review 留证：student_answer / hints / judgement 三个字段透传后端', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12/review': { mistake: { next_review_at: '2026-11-02 08:00:00', review_count: 4 } },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_review.execute({
+      id: 12, rating: 'again', step: '计算',
+      student_answer: '我算成了 2', hints: 1, judgement: '公式对，最后一步符号错',
+    });
+    const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/review')).init.body);
+    assert.equal(sent.student_answer, '我算成了 2');
+    assert.equal(sent.hints, 1);
+    assert.equal(sent.judgement, '公式对，最后一步符号错');
+    assert.match(value.text, /已留证：作答 6 字 · 1 级提示 · 判分依据/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_review 不传留证字段时一个都不发（老服务不受影响）', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12/review': { mistake: { next_review_at: '2026-11-02 08:00:00' } },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_review.execute({ id: 12, rating: 'good' });
+    const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/review')).init.body);
+    assert.deepEqual(sent, { rating: 'good' });
+    assert.doesNotMatch(value.text, /已留证/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_review 的 hints 超出 0-3 时夹回范围，不会把 9 发出去', async () => {
+  const stub = stubFetch({
+    '/api/mistakes/12/review': { mistake: { next_review_at: '2026-11-02 08:00:00' } },
+  });
+  try {
+    const { map } = tools();
+    await map.mb_review.execute({ id: 12, rating: 'good', hints: 9 });
+    const sent = JSON.parse(stub.calls.find((item) => item.url.includes('/review')).init.body);
+    assert.equal(sent.hints, 3);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_brief：把到期题、理由、断点、最弱点排成人话', async () => {
+  const stub = stubFetch({
+    '/api/brief': {
+      generated_at: '2026-10-24 16:00:00',
+      window_days: 14,
+      counts: { due_today: 3, overdue: 1, active: 5, graded_with_hints: 4, hint_free_correct: 0.5 },
+      items: [
+        { id: 14, subject: '数据结构', knowledge: '排序', question: '快排最坏时间复杂度是多少', due: '2026-10-22 08:00:00', reason: '逾期 2 天；这个知识点正确率 40%（3 道 / 5 次）' },
+        { id: 12, subject: '高数', knowledge: '极限', question: '求 lim(x→0) tan2x/x', due: '2026-10-24 08:00:00', reason: '在这个点上第 3 次错在「计算」' },
+      ],
+      patterns: [{ knowledge: '极限', step: '计算', count: 3 }],
+      weak_points: [{ knowledge: '极限', mistakes: 3, graded: 5, accuracy: 0.4 }],
+      note: '今天 3 道到期，其中「极限」反复栽在「计算」（3 次），先拿这一类开刀。',
+      sample: { mistakes: 5, reviews: 4, enough: false, need_reviews: 20, note: '样本还少：已复习 4 次，至少 20 次才看得出趋势，下面的比例先当参考。' },
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_brief.execute({});
+    const text = value.text;
+    assert.match(text, /AI 学习简报 · 近 14 天/);
+    assert.match(text, /今天到期 3 道（逾期 1 道 · 在库活跃 5 道）/);
+    assert.match(text, /零提示做对率：50%（4 次有记录）/);
+    assert.match(text, /#14 \[数据结构 · 排序\] 快排最坏时间复杂度是多少/);
+    assert.match(text, /为什么：逾期 2 天/);
+    assert.match(text, /「极限」第 3 次错在「计算」/);
+    assert.match(text, /「极限」正确率 40%（3 道 \/ 5 次）/);
+    assert.match(text, /建议：今天 3 道到期/);
+    assert.match(text, /样本还少/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('mb_brief：没有留证记录时说清怎么开始记，不冒充 0%', async () => {
+  const stub = stubFetch({
+    '/api/brief': {
+      window_days: 7,
+      counts: { due_today: 0, overdue: 0, active: 2, graded_with_hints: 0, hint_free_correct: null },
+      items: [], patterns: [], weak_points: [],
+      note: '今天没有到期题。可以挑一道最久没复习的，或者让我出几道变式。',
+      sample: { enough: true },
+    },
+  });
+  try {
+    const { map } = tools();
+    const value = await map.mb_brief.execute({ days: 7, limit: 2 });
+    assert.match(value.text, /零提示做对率：还没有记录/);
+    assert.match(value.text, /今天没有到期题。/);
+    assert.doesNotMatch(value.text, /样本还少/);
+    const url = stub.calls.find((item) => item.url.includes('/api/brief')).url;
+    assert.match(url, /days=7/);
+    assert.match(url, /limit=2/);
   } finally {
     stub.restore();
   }

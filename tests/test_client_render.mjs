@@ -257,7 +257,7 @@ test('App 骨架：标题、统计、六个页签、新建按钮都在', () => {
   assert.match(classesOf(dom).join(' '), /mb-tabs/);
   assert.match(classesOf(dom).join(' '), /mb-split/);
   // 标题旁要有版本号：改了界面却「看不出区别」时，先看这里确认跑的是哪份代码
-  assert.match(text, /v0\.50/);
+  assert.match(text, /v0\.51/);
 });
 
 // v0.43 起面板标题旁显示版本号，值必须与 package.json 一致 —— 否则它就是个骗人的标签。
@@ -790,6 +790,36 @@ test('计划页：每日上限是 1–200 的数字输入框，默认值取 sett
   assert.equal(number.props.min, '1');
   assert.equal(number.props.max, '200');
   assert.equal(number.props.value, '35', '输入框初值要取 settings.daily_limit');
+});
+
+test('计划页：今日建议卡把「为什么先练这几道」显示出来（v0.51）', () => {
+  const report = {
+    window_days: 7, daily_limit: 10, today_count: 1, overdue: 0, total: 1, overflow: 0,
+    days: [{ label: '今天', date: '2026-10-23', count: 1, items: [ITEM] }],
+  };
+  const brief = {
+    note: '今天 1 道到期，其中「极限」反复栽在「计算」（3 次），先拿这一类开刀。',
+    items: [{ id: 6, subject: '高数', question: '求极限', reason: '逾期 2 天' }],
+  };
+  // PlanView hooks 顺序：days, limit, subject, report, error, limitNote, limitDraft, brief
+  const dom = render(loadPlugin(['7', '10', '', report, '', undefined, undefined, brief])
+    .plugin.__test__.PlanView({ meta: META }));
+  const text = textOf(dom).join('|');
+  assert.match(text, /今日建议/);
+  assert.match(text, /反复栽在「计算」/);
+  assert.match(text, /逾期 2 天/);
+});
+
+test('计划页：简报拿不到时不显示建议卡，页面照常', () => {
+  const report = {
+    window_days: 7, daily_limit: 10, today_count: 1, overdue: 0, total: 1, overflow: 0,
+    days: [{ label: '今天', date: '2026-10-23', count: 1, items: [ITEM] }],
+  };
+  const dom = render(loadPlugin(['7', '10', '', report, '', undefined, undefined, null])
+    .plugin.__test__.PlanView({ meta: META }));
+  const text = textOf(dom).join('|');
+  assert.doesNotMatch(text, /今日建议/);
+  assert.match(text, /今天有 1 道要复习/);
 });
 
 test('计划页：每道题是按钮，点了把 id 交给 onOpen（跳到错题页）', () => {

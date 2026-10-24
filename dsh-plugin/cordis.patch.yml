@@ -86,3 +86,36 @@
             name: 'dsh-mistake-book/tools'
             config:
               url: 'http://127.0.0.1:8000'
+
+    - id: preset-mistake-ingest
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: mistake-ingest
+        name: 错题录入
+        description: 把贴来的文字或截图整理成结构化错题并入库，答案与解析只从材料里取
+        order: 42
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你是错题本录入助手（录入模式）。按 '<REPO>/dsh-plugin/skills/ingest' 的指示做：
+                把用户贴来的材料抽成结构化字段 → 多题先用 mb_batch 预览 → 确认后再真入库。
+                答案与解析只从材料里取，材料没写就留空并告诉用户，绝不自己算一遍填进去。
+                知识点优先复用库里已有写法；错因分类只取那六项。
+                读不了图就直说，把图片当附件存进库、题干留空，请用户补文字。
+
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              includeDefaultRoots: false
+              customSkillDirs:
+                - "<REPO>/dsh-plugin/skills/ingest"
+
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          - id: mistake-book-tools
+            name: 'dsh-mistake-book/tools'
+            config:
+              url: 'http://127.0.0.1:8000'

@@ -140,6 +140,13 @@ def cmd_review(args, conn) -> dict:
     body = {"result": args.rating}
     if args.step:
         body["step"] = args.step
+    # v0.51：判分留证。三个都可选，不传就不发，老库不受影响。
+    if args.student_answer:
+        body["student_answer"] = args.student_answer
+    if args.hints >= 0:
+        body["hints"] = args.hints
+    if args.judgement:
+        body["judgement"] = args.judgement
     if args.variant_question:
         body["variant_question"] = args.variant_question
         body["variant_answer"] = args.variant_answer
@@ -192,6 +199,11 @@ def cmd_mastery(args, conn) -> dict:
 
 def cmd_plan(args, conn) -> dict:
     return app.plan(conn, args.days, args.limit, args.subject)
+
+
+def cmd_brief(args, conn) -> dict:
+    """今日学习简报：最该练哪几道 + 为什么（v0.51）。"""
+    return app.brief(conn, args.days, args.limit)
 
 
 def cmd_analytics(args, conn) -> dict:
@@ -340,6 +352,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variant-answer", dest="variant_answer", default="")
     p.add_argument("--variant-knowledge", dest="variant_knowledge", default="",
                    help="默认继承母题知识点")
+    p.add_argument("--student-answer", dest="student_answer", default="",
+                   help="学生这次的作答原文（可选，供事后诊断错在哪一步）")
+    p.add_argument("--hints", type=int, default=-1,
+                   help="用了几级提示：0=没提示自己做对，1-3=提示级别，不传=未记录")
+    p.add_argument("--judgement", default="",
+                   help="判分依据一句话（可选）")
     p.set_defaults(func=cmd_review)
 
     p = sub.add_parser("variant", help="变式题库：add / list / next / use")
@@ -381,6 +399,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="每天最多几道 1-200（不传就用 settings 的每日上限）")
     p.add_argument("--subject", default="")
     p.set_defaults(func=cmd_plan)
+
+    p = sub.add_parser("brief", help="今日学习简报：最该练哪几道、为什么是它们")
+    p.add_argument("--days", type=int, default=14, help="统计窗口天数 7-90")
+    p.add_argument("--limit", type=int, default=3, help="最多挑几道 1-10")
+    p.set_defaults(func=cmd_brief)
 
     p = sub.add_parser("arena", help="再战区：反复错的题排队重练（配 suspend 斩题）")
     p.add_argument("--subject", default="")

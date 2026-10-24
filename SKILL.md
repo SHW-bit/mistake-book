@@ -71,6 +71,9 @@ AI 让学习「感觉」变容易了，这恰恰是问题。四个认知陷阱�
    - 半电 → 只做到期复习，或继续上次那道没做完的
    - 快没电 → 只做 1-2 道轻量复习，然后收；**不催、不制造愧疚**
 2. **到期复习**：`python mb.py due --limit 3`。**一次最多 3 道**，宁可少不要多。
+   - 想先知道「今天最该练哪几道、为什么」，跑 `python mb.py brief --days 14 --limit 3`（面板里 `mb_brief`）。
+     它比 `due` 多两样东西：每道题**一句可解释的理由**（逾期几天 / 这个知识点正确率多少 / 第几次错在同一步），
+     以及**反复栽的断点**和**最弱知识点**。开场用这个，比念清单有方向。
 3. 有到期题就先复习再讲新题——提取练习优先于新输入。
 4. **排不下时看计划**：如果到期题很多（`due` 返回一堆）或用户问「我今天该做哪些」，用
    `python mb.py plan --days 7 --limit 10` 拿到按天分桶的清单——今天该做几道、逾期几道、
@@ -141,6 +144,21 @@ python mb.py review 12 --rating hard --step 计算
 ```
 
 取值只有六档：`审题 / 建模 / 计算 / 检验 / 表达 / 记忆`（[app.py](app.py) 的 `REVIEW_STEPS`，别的值会被 400 拒掉）。
+
+**顺手留证（v0.51）**：想让下次能回答「这次错和上次是同一个原因吗」，把这三样一起提交：
+
+| 参数 | 记什么 |
+| --- | --- |
+| `--student-answer` / `student_answer` | 学生这次的作答原文（面板里直接贴他的话） |
+| `--hints` / `hints` | 用了几级提示：`0` = 没提示自己做对，`1-3` = 提示级别；不传 = 未记录 |
+| `--judgement` / `judgement` | 一句话说明为什么给这个档 |
+
+```bash
+python mb.py review 12 --rating hard --step 计算 \
+  --student-answer "我把 tan2x 当成 2x 了" --hints 1 --judgement "换元对，最后符号错"
+```
+
+`hints` 是**唯一能算出「零提示做对率」**的字段（`brief` 里那一行）。老记录默认 `-1`，不会被算成零提示。
 
 - **判断不出来就别填。** 瞎填比不填更糟——统计会得出错误的「你总在计算上错」。
 - 只在真的观察到断点时才用：学生式子列对了但算错 → `计算`；看错条件 → `审题`；思路搭不起来 → `建模`；答案对但写不出过程 → `表达`；会做但记不住公式 → `记忆`；算完没检查出明显错 → `检验`。
@@ -301,6 +319,7 @@ python mb.py list --subject 高数        # 按学科
 python mb.py show 12                    # 单题详情 + 复习历史 + 四档间隔
 python mb.py review 12 --rating hard
 python mb.py review 12 --rating hard --step 计算   # 顺手记断点（六档）
+python mb.py review 12 --rating hard --student-answer "算错了" --hints 1 --judgement "换元对、符号错"  # 判分留证（v0.51）
 python mb.py stream --limit 20 --ndjson        # 事件流水（建题/评分/斩题/恢复）
 python mb.py add --question 题干 --answer 答案 --subject 高数 --mistake-type 概念不清
 python mb.py import --file 错题.txt   # 批量导入（--- 分题）
@@ -327,6 +346,7 @@ python mb.py due --sort errors          # 面板里用 mb_due(sort="errors")：�
 python mb.py profile                    # 学习画像（薄弱知识点 + 证据）
 python mb.py mastery                    # 掌握门禁：过线 / 差在哪
 python mb.py plan --days 7 --limit 10   # 今日复习计划（按天分桶 + 每日上限）
+python mb.py brief --days 14 --limit 3  # 今日学习简报：最该练哪几道 + 为什么（v0.51）
 python mb.py analytics --days 30        # 趋势 / 保持度 / 最薄弱知识点 / 断点分布（by_step / step_patterns）
 python mb.py arena --limit 5            # 再战区：默认错 2 次以上、还没连对 2 次的题
 python mb.py settings                   # 查看再战区阈值

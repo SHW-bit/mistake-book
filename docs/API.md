@@ -24,7 +24,7 @@
 | GET | `/api/papers/{id}` | 试卷详情 |
 | PUT / PATCH | `/api/papers/{id}` | 修改试卷（未提供的字段保持不变） |
 | DELETE | `/api/papers/{id}` | 删除试卷，卷内题目 `paper_id` 归零（不删题），返回 `{deleted, detached}` |
-| POST | `/api/mistakes/{id}/review` | 复习；body `{"rating": 1-4}` 或 `{"result": "again"\|"hard"\|"good"\|"easy"\|"mastered"}` |
+| POST | `/api/mistakes/{id}/review` | 复习；body `{"rating": 1-4}` 或 `{"result": "again"\|"hard"\|"good"\|"easy"\|"mastered"}`；可带 `step`（六档断点）与留证三字段 `student_answer`（≤2000 字）/ `hints`（`-1` 或 0–3）/ `judgement`（≤500 字），v0.51 |
 | GET | `/api/mistakes/{id}/reviews` | 复习历史 + 正确率（只统计 1–4 分的记录） |
 | GET | `/api/mistakes/{id}/preview` | 四档评分各自会排到多少天后 + 当前可提取率 |
 | GET | `/api/mistakes/{id}/variants` | 该题的变式列表 |
@@ -36,6 +36,7 @@
 | GET | `/api/mastery?subject=` | 掌握门禁：哪些知识点真的过了线、未过线的差在哪；`thresholds` 随题量分档（<30 道 `mode:"small"`，≥30 道 `mode:"full"`，v0.50） |
 | GET | `/api/plan?days=&limit=&subject=` | 今日复习计划：未来 N 天（1–30）按天分桶，每天最多 `limit`（1–200）道，逾期优先；**不传 `limit` 时跟随 settings 的 `daily_limit`**；返回 `days/today_count/overdue/total/overflow/daily_limit` |
 | GET | `/api/analytics?days=` | 学习分析：7–90 天的录入/复习趋势、保持度四档分布与最快会忘的题、错因/学科分布、最薄弱知识点；`sample` 给出样本是否够（`enough` / `need_reviews` / `note`，v0.50） |
+| GET | `/api/brief?days=&limit=` | AI 学习简报：今天最该练哪几道 + 每道一句理由、反复栽的断点、最弱知识点；`days` 7–90（默认 14）、`limit` 1–10（默认 3）；返回 `counts`（含 `hint_free_correct`，只统计 `hints >= 0`）/ `items` / `patterns` / `weak_points` / `note` / `sample`（v0.51） |
 | GET | `/api/arena?subject=&limit=&show=` | 再战区：`show=zone`（默认，在战区）或 `cleared`（已出区）；返回 `rule/counts/total/items`，每条带 `wrong_count/correct_streak/need_streak/accuracy/last_result` |
 | GET | `/api/settings` | 再战区阈值：`values/labels/bounds`（v0.12） |
 | PUT / POST | `/api/settings` | 保存阈值，body `{"arena_min_wrong": 3, "arena_clear_streak": 2, "daily_limit": 20}`；前两个 1–20，`daily_limit` 1–200 |

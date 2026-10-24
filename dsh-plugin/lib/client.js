@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 // 面板客户端版本：显示在标题旁，用来确认「装的到底是哪份代码」。
 // 值必须与 package.json 的 version 一致（tests/test_client_render.mjs 会断言），
 // 否则改了 UI 却看不到变化时，没法判断是代码没生效还是自己没找到。
-const CLIENT_VERSION = '0.50.0';
+const CLIENT_VERSION = '0.51.0';
     const RETAIN_SOURCE = 'mistakeBook';
     const SESSION_ENDPOINT = '/api/mistake-book/session';
     const DATA_ENDPOINT = '/api/mistake-book/data';
@@ -2268,6 +2268,17 @@ const CLIENT_VERSION = '0.50.0';
       const [error, setError] = useState('');
       const [limitNote, setLimitNote] = useState('');
       const [limitDraft, setLimitDraft] = useState(savedLimit);
+      // v0.51：AI 学习简报。排期是「哪天做哪些」，简报是「为什么先做这几道」。
+      // 放在 hooks 末尾：渲染测试按声明顺序喂 seed，插在中间会让既有用例整体错位。
+      const [brief, setBrief] = useState(null);
+
+      useEffect(() => {
+        let cancelled = false;
+        data('/api/brief?days=14&limit=3')
+          .then((value) => { if (!cancelled) setBrief(value); })
+          .catch(() => { if (!cancelled) setBrief(null); });
+        return () => { cancelled = true; };
+      }, []);
 
       useEffect(() => {
         let cancelled = false;
@@ -2326,6 +2337,16 @@ const CLIENT_VERSION = '0.50.0';
             ? h('button.mb-btn.primary', { type: 'button', onClick: () => props.onGoto({ due: true }) },
                 '开始今天的 ' + report.today_count + ' 道')
             : null),
+
+        brief && (brief.note || (brief.items || []).length)
+          ? h('div.mb-card', null,
+              h('div.mb-cardhead', null, '今日建议'),
+              brief.note ? h('div.mb-note', null, brief.note) : null,
+              (brief.items || []).slice(0, 3).map((item) => h('div.mb-hrow', { key: item.id },
+                h(MathText, { className: 'mb-q', style: { flex: '1 1 auto' }, text: qTitle(item, 60) }),
+                h('span.mb-badge', null, item.subject || '未分类'),
+                item.reason ? h('span.mb-meta', { style: { flex: '0 0 auto' } }, item.reason) : null)))
+          : null,
 
         h('div.mb-card', null,
           h('div.mb-cardhead', null, '未来 7 天负载'),

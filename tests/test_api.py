@@ -922,6 +922,100 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["data"]["sample"]["reviews"], 3)
         self.assertFalse(body["data"]["sample"]["enough"])
 
+    # -- v0.51：判分留证 + AI 学习简报 --
+    def test_review_keeps_evidence(self):
+        item = self.create(question="留证题", knowledge="极限")
+        status, body = self.call("POST", "/api/mistakes/%d/review" % item["id"],
+                                 {"result": "again", "step": "计算",
+                                  "student_answer": "我把 tan2x 当成 2x 了",
+                                  "hints": 1,
+                                  "judgement": "换元对，最后符号错"})
+        self.assertEqual(status, 200, body)
+
+        _, body = self.call("GET", "/api/mistakes/%d/reviews" % item["id"])
+        row = body["data"]["items"][0]
+        self.assertEqual(row["student_answer"], "我把 tan2x 当成 2x 了")
+        self.assertEqual(row["hints"], 1)
+        self.assertEqual(row["judgement"], "换元对，最后符号错")
+
+    def test_review_evidence_defaults_to_unrecorded(self):
+        item = self.create(question="没留证")
+        self.call("POST", "/api/mistakes/%d/review" % item["id"], {"result": "good"})
+        _, body = self.call("GET", "/api/mistakes/%d/reviews" % item["id"])
+        row = body["data"]["items"][0]
+        self.assertEqual(row["student_answer"], "")
+        # -1 表示「没记过」，与「记了 0 级提示」区分开
+        self.assertEqual(row["hints"], -1)
+        self.assertEqual(row["judgement"], "")
+
+    def test_review_hints_out_of_range_rejected(self):
+        item = self.create(question="提示越界")
+        status, body = self.call("POST", "/api/mistakes/%d/review" % item["id"],
+                                 {"result": "good", "hints": 9})
+        self.assertEqual(status, 400, body)
+        self.assertIn("hints", body["error"]["message"])
+        # 被拒时不能留下半条复习记录
+        _, body = self.call("GET", "/api/mistakes/%d/reviews" % item["id"])
+        self.assertEqual(body["data"]["total"], 0)
+
+    def test_brief_picks_due_items_with_reasons(self):
+        weak = self.create(question="弱项题", knowledge="极限")
+        other = self.create(question="另一题", knowledge="导数")
+        # 极限连错两次，让它成为最弱知识点 + 断点模式
+        for _ in range(2):
+            self.call("POST", "/api/mistakes/%d/review" % weak["id"],
+                      {"result": "again", "step": "计算", "hints": 0})
+        self.call("POST", "/api/mistakes/%d/review" % other["id"],
+                  {"result": "good", "hints": 0})
+
+        status, body = self.call("GET", "/api/brief?days=14&limit=3")
+        self.assertEqual(status, 200, body)
+        data = body["data"]
+        self.assertIn("counts", data)
+        self.assertEqual(data["counts"]["active"], 2)
+        # 两次都显式记了 hints，零提示做对率只该统计这两次「again」和一次「good」
+        self.assertEqual(data["counts"]["graded_with_hints"], 3)
+        self.assertAlmostEqual(data["counts"]["hint_free_correct"], round(1 / 3, 3))
+        self.assertIn("items", data)
+        self.assertIn("note", data)
+        # 逾期题优先，理由里要能说清为什么
+        for entry in data["items"]:
+            self.assertTrue(entry["reason"])
+            self.assertIn("id", entry)
+
+    def test_brief_ignores_unrecorded_hints(self):
+        item = self.create(question="老数据题")
+        self.call("POST", "/api/mistakes/%d/review" % item["id"], {"result": "good"})
+        _, body = self.call("GET", "/api/brief")
+        counts = body["data"]["counts"]
+        # hints 默认 -1，不能被算成「零提示做对」抬高比例
+        self.assertEqual(counts["graded_with_hints"], 0)
+        self.assertIsNone(counts["hint_free_correct"])
+
+    # -- v0.51：CLI 也能留证、也能出简报 --
+    def test_mb_cli_review_evidence_and_brief(self):
+        item = self.create(question="CLI 留证", knowledge="极限")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(["--db", self.db, "review", str(item["id"]),
+                            "--rating", "hard", "--step", "计算",
+                            "--student-answer", "算错了", "--hints", "2",
+                            "--judgement", "思路对，算错"])
+        self.assertEqual(code, 0, out.getvalue())
+        _, body = self.call("GET", "/api/mistakes/%d/reviews" % item["id"])
+        row = body["data"]["items"][0]
+        self.assertEqual(row["student_answer"], "算错了")
+        self.assertEqual(row["hints"], 2)
+        self.assertEqual(row["judgement"], "思路对，算错")
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = mb.main(["--db", self.db, "brief", "--days", "7", "--limit", "2"])
+        self.assertEqual(code, 0, out.getvalue())
+        printed = out.getvalue()
+        self.assertIn("counts", printed)
+        self.assertIn("note", printed)
+
     # -- v0.4：CLI 权限模型 --
     def test_mb_read_only_blocks_writes(self):
         item = self.create()

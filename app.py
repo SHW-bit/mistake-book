@@ -199,6 +199,10 @@ CREATE TABLE IF NOT EXISTS review_logs (
     fsrs_stability  REAL NOT NULL DEFAULT 0,
     fsrs_difficulty REAL NOT NULL DEFAULT 0,
     step         TEXT    NOT NULL DEFAULT '',
+    -- v0.51 判分留证：学生这次写了什么 / 用了几级提示 / 为什么判这一档
+    student_answer TEXT  NOT NULL DEFAULT '',
+    hints          INTEGER NOT NULL DEFAULT -1,
+    judgement      TEXT  NOT NULL DEFAULT '',
     reviewed_at  TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_logs_mistake ON review_logs(mistake_id, reviewed_at);
@@ -278,6 +282,9 @@ MIGRATIONS = (
     ("mistakes", "image_file", "TEXT NOT NULL DEFAULT ''"),
     ("mistakes", "paper_id", "INTEGER NOT NULL DEFAULT 0"),
     ("review_logs", "step", "TEXT NOT NULL DEFAULT ''"),
+    ("review_logs", "student_answer", "TEXT NOT NULL DEFAULT ''"),
+    ("review_logs", "hints", "INTEGER NOT NULL DEFAULT -1"),
+    ("review_logs", "judgement", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -1133,6 +1140,40 @@ def _elapsed_days(last_reviewed_at: str | None, now: datetime) -> float:
     return max(0.0, (now - last).total_seconds() / 86400.0)
 
 
+def _parse_evidence(body: dict) -> dict:
+    """v0.51 判分留证：学生写了什么 / 用了几级提示 / 为什么判这一档。
+
+    三个字段都可选。以前 review_logs 只有结果没有证据，rating 是个黑箱：
+    学生说「我会了」时翻不出他当时写了什么，也算不出「几级提示才做出来」。
+    hints 默认 -1 = 未记录，与「记录了 0 级提示」区分开——老数据没有这一列，
+    混进 0 会把「零提示做对率」算得虚高。
+    """
+    def text(key: str, limit: int) -> str:
+        value = body.get(key)
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            value = str(value)
+        value = value.strip()
+        if len(value) > limit:
+            raise ValidationError("字段 %s 过长（上限 %d 字）" % (key, limit))
+        return value
+
+    raw_hints = body.get("hints", -1)
+    if raw_hints is None or raw_hints == "":
+        hints = -1
+    else:
+        try:
+            hints = int(raw_hints)
+        except (TypeError, ValueError):
+            raise ValidationError("hints 必须是 0-3 的整数（用了几级提示）")
+        if hints != -1 and not 0 <= hints <= 3:
+            raise ValidationError("hints 必须在 0-3 之间（-1 表示未记录）")
+    return {"student_answer": text("student_answer", 2000),
+            "hints": hints,
+            "judgement": text("judgement", 500)}
+
+
 def _parse_step(body: dict) -> str:
     """这次错在解题流程的哪一步；不填就存空串（不强制，免得录一道题还得先想清楚）。"""
     raw = body.get("step")
@@ -1191,6 +1232,7 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
         raise NotFound("错题不存在: id=%d" % mid)
 
     step = _parse_step(body)
+    evidence = _parse_evidence(body)
 
     # 变式先入库：万一变式不合法，这次复习整体不生效，不留半条记录
     variant = _extract_variant(body)
@@ -1213,10 +1255,12 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
             (stamp, stamp, mid))
         conn.execute(
             "INSERT INTO review_logs (mistake_id, result, rating, stage, interval_days, "
-            "fsrs_stability, fsrs_difficulty, step, reviewed_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "fsrs_stability, fsrs_difficulty, step, student_answer, hints, judgement, "
+            "reviewed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (mid, "mastered", 0, stage, 0,
              float(row["fsrs_stability"] or 0), float(row["fsrs_difficulty"] or 0),
-             step, stamp))
+             step, evidence["student_answer"], evidence["hints"], evidence["judgement"],
+             stamp))
         conn.commit()
         append_event(conn, "mastered", id=mid, step=step, knowledge=row["knowledge"],
                      subject=row["subject"])
@@ -1246,14 +1290,17 @@ def review_mistake(conn: sqlite3.Connection, mid: int, body: dict) -> dict:
     )
     conn.execute(
         "INSERT INTO review_logs (mistake_id, result, rating, stage, interval_days, "
-        "fsrs_stability, fsrs_difficulty, step, reviewed_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "fsrs_stability, fsrs_difficulty, step, student_answer, hints, judgement, "
+        "reviewed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (mid, {1: "again", 2: "hard", 3: "good", 4: "easy"}[rating], rating, stage,
-         interval, result["stability"], result["difficulty"], step, stamp),
+         interval, result["stability"], result["difficulty"], step,
+         evidence["student_answer"], evidence["hints"], evidence["judgement"], stamp),
     )
     conn.commit()
     append_event(conn, "reviewed", id=mid, rating=rating,
                  result={1: "again", 2: "hard", 3: "good", 4: "easy"}[rating],
-                 step=step, interval_days=interval, next_review_at=next_at,
+                 step=step, hints=evidence["hints"],
+                 interval_days=interval, next_review_at=next_at,
                  knowledge=row["knowledge"], subject=row["subject"])
     item = get_mistake(conn, mid)
     item["variant"] = variant
@@ -1280,7 +1327,7 @@ def get_reviews(conn: sqlite3.Connection, mid: int) -> dict:
         raise NotFound("错题不存在: id=%d" % mid)
     rows = conn.execute(
         "SELECT id, result, rating, stage, interval_days, fsrs_stability, "
-        "fsrs_difficulty, step, reviewed_at FROM review_logs "
+        "fsrs_difficulty, step, student_answer, hints, judgement, reviewed_at FROM review_logs "
         "WHERE mistake_id = ? ORDER BY id DESC", (mid,)).fetchall()
     items = [dict(r) for r in rows]
     # 掌握不算对错；hard/good/easy 算答对，again 算答错
@@ -2689,6 +2736,124 @@ def query_mistakes(conn: sqlite3.Connection, params: dict) -> dict:
             "sort": sort_key}
 
 
+def brief(conn: sqlite3.Connection, days: int = 14, limit: int = 3) -> dict:
+    """v0.51 AI 学习简报：今天最该练哪几道、为什么是它们。
+
+    不是新算法：到期在 plan()、断点模式在 analytics()、提示次数在 review_logs。
+    这里只做两件 analytics 不做的事 —— 把题按「该练」排序，并给每道题一句
+    可解释的理由。模型拿到理由才能讲人话，拿到一堆数字只能念报表。
+    """
+    days = min(90, max(7, to_int(days, 14)))
+    limit = min(10, max(1, to_int(limit, 3)))
+    today = plan(conn, 1)
+    report = analytics(conn, days)
+
+    points = {}
+    for point in _knowledge_points(conn):
+        if point.get("accuracy") is not None:
+            points[point["knowledge"]] = point
+
+    patterns = {}
+    for row in report.get("step_patterns") or []:
+        key = row.get("knowledge") or ""
+        if key and int(row.get("count") or 0) >= 2:
+            patterns.setdefault(key, []).append(row)
+    for rows in patterns.values():
+        rows.sort(key=lambda r: -(r.get("count") or 0))
+
+    now = datetime.now()
+    picked = []
+    seen = set()
+    for day in today.get("days") or []:
+        for item in day.get("items") or []:
+            if len(picked) >= limit:
+                break
+            mid = item.get("id")
+            if mid in seen:
+                continue
+            seen.add(mid)
+            reasons = []
+            overdue = 0
+            try:
+                due = datetime.strptime(item["next_review_at"], "%Y-%m-%d %H:%M:%S")
+                overdue = max(0, (now - due).days)
+            except (TypeError, ValueError, KeyError):
+                overdue = 0
+            if overdue >= 1:
+                reasons.append("逾期 %d 天" % overdue)
+            knowledge = item.get("knowledge") or ""
+            point = points.get(knowledge)
+            if point and int(point.get("graded") or 0) >= 2:
+                accuracy = point.get("accuracy") or 0.0
+                if accuracy < 0.6:
+                    reasons.append("这个知识点正确率 %d%%（%d 道 / %d 次）"
+                                   % (round(accuracy * 100), point["mistakes"],
+                                      point["graded"]))
+            pattern = (patterns.get(knowledge) or [None])[0]
+            if pattern:
+                reasons.append("在这个点上第 %d 次错在「%s」"
+                               % (pattern["count"], pattern["step"]))
+            if not reasons:
+                reasons.append("到期复习")
+            picked.append({
+                "id": mid,
+                "subject": item.get("subject") or "未分类",
+                "knowledge": knowledge,
+                "question": item.get("question") or "",
+                "due": item.get("next_review_at") or "",
+                "reason": "；".join(reasons),
+            })
+
+    # 零提示做对率：比四档 rating 更接近真实水平。只统计 v0.51 起显式记过
+    # hints 的记录（-1 = 未记录），否则老数据会全被当成「零提示」把比例抬高。
+    since = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        "SELECT hints, rating FROM review_logs "
+        "WHERE rating BETWEEN 1 AND 4 AND hints >= 0 AND reviewed_at >= ?",
+        (since,)).fetchall()
+    graded = len(rows)
+    hint_free = sum(1 for r in rows
+                    if int(r["hints"] or 0) == 0 and int(r["rating"] or 0) >= 3)
+    hint_free_rate = round(hint_free / graded, 3) if graded else None
+
+    active = conn.execute(
+        "SELECT COUNT(*) FROM mistakes WHERE suspended = 0").fetchone()[0]
+    counts = {
+        "due_today": today.get("today_count") or 0,
+        "overdue": today.get("overdue") or 0,
+        "active": active,
+        "graded_with_hints": graded,
+        "hint_free_correct": hint_free_rate,
+    }
+
+    weak = (report.get("weak_points") or [])[:3]
+    top_patterns = []
+    for knowledge, rows_ in patterns.items():
+        for row in rows_[:1]:
+            top_patterns.append({"knowledge": knowledge, "step": row["step"],
+                                 "count": row["count"]})
+    top_patterns.sort(key=lambda r: -r["count"])
+    top_patterns = top_patterns[:3]
+
+    if not picked:
+        note = "今天没有到期题。可以挑一道最久没复习的，或者让我出几道变式。"
+    elif top_patterns:
+        top = top_patterns[0]
+        note = ("今天 %d 道到期，其中「%s」反复栽在「%s」（%d 次），先拿这一类开刀。"
+                % (counts["due_today"], top["knowledge"], top["step"], top["count"]))
+    elif weak and (weak[0].get("accuracy") or 1) < 0.6:
+        note = ("今天 %d 道到期。最弱的是「%s」，正确率 %d%%，练完顺手记一下错在哪一步。"
+                % (counts["due_today"], weak[0]["knowledge"],
+                   round((weak[0].get("accuracy") or 0) * 100)))
+    else:
+        note = "今天 %d 道到期，按顺序练就行；每道都记一下错在哪一步。" % counts["due_today"]
+
+    return {"generated_at": now_str(), "window_days": days,
+            "counts": counts, "items": picked, "patterns": top_patterns,
+            "weak_points": weak, "note": note,
+            "sample": report.get("sample")}
+
+
 def stats(conn: sqlite3.Connection) -> dict:
     now = now_str()
     row = conn.execute(
@@ -3302,6 +3467,10 @@ class AppHandler(SimpleHTTPRequestHandler):
                     conn, to_int(one(params, "days"), 7),
                     to_int(limit_raw, None) if limit_raw else None,
                     one(params, "subject").strip())})
+            if path == "/api/brief" and method == "GET":
+                return self._json(200, {"ok": True, "data": brief(
+                    conn, to_int(one(params, "days"), 14),
+                    to_int(one(params, "limit"), 3))})
             if path == "/api/analytics" and method == "GET":
                 return self._json(200, {"ok": True, "data": analytics(
                     conn, to_int(one(params, "days"), 30))})
